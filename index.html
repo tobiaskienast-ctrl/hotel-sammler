@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Hotel-Sammler</title>
+        <link rel="manifest" href="./manifest.json" />
+          <meta name="theme-color" content="#2563eb" />
+            <style>
+                :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --muted: #94a3b8; --accent: #2563eb; --ok: #10b981; --danger: #ef4444; }
+                    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+                        body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); max-width: 600px; margin-inline: auto; }
+                            h1 { font-size: 1.35rem; margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center; }
+                                .badge { font-size: 0.8rem; background: var(--accent); padding: 3px 10px; border-radius: 999px; }
+                                    .card { background: var(--card); padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+                                        label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 4px; }
+                                            input, select, textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: var(--text); font-size: 1rem; }
+                                                .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                                                    button { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 14px; }
+                                                        .btn-primary { background: var(--accent); color: white; }
+                                                            .btn-primary:disabled { opacity: 0.6; cursor: wait; }
+                                                                .btn-export { background: var(--ok); color: #052e16; }
+                                                                    .btn-del { background: transparent; color: var(--danger); width: auto; padding: 4px 8px; margin: 0; font-size: 0.85rem; }
+                                                                        .status { font-size: 0.85rem; color: #38bdf8; margin-top: 10px; min-height: 1.2em; }
+                                                                            .item { border-bottom: 1px solid #334155; padding: 10px 0; font-size: 0.9rem; }
+                                                                                .item:last-child { border-bottom: none; }
+                                                                                    .item-head { display: flex; justify-content: space-between; font-weight: 600; }
+                                                                                        .meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+                                                                                          </style>
+                                                                                          </head>
+                                                                                          <body>
+                                                                                            <h1>🏨 Hotel-Sammler <span class="badge" id="countBadge">0</span></h1>
+
+                                                                                              <form id="hotelForm" class="card">
+                                                                                                  <label for="url">Check24 Link</label>
+                                                                                                      <input type="url" id="url" placeholder="https://urlaub.check24.de/..." required />
+
+                                                                                                          <label for="hotelName">Hotelname (für OSM-Suche)</label>
+                                                                                                              <input type="text" id="hotelName" placeholder="z. B. Hotel Sunrise Resort" required />
+
+                                                                                                                  <label for="location">Ort / Region / Insel</label>
+                                                                                                                      <input type="text" id="location" placeholder="z. B. Side, Türkei oder Alcudia, Mallorca" required />
+
+                                                                                                                          <div class="row">
+                                                                                                                                <div>
+                                                                                                                                        <label for="price">Gesamtpreis (€)</label>
+                                                                                                                                                <input type="number" id="price" placeholder="2450" />
+                                                                                                                                                      </div>
+                                                                                                                                                            <div>
+                                                                                                                                                                    <label for="board">Verpflegung</label>
+                                                                                                                                                                            <select id="board">
+                                                                                                                                                                                      <option value="All Inclusive">All Inclusive</option>
+                                                                                                                                                                                                <option value="Halbpension">Halbpension</option>
+                                                                                                                                                                                                          <option value="Frühstück">Frühstück</option>
+                                                                                                                                                                                                                    <option value="Ohne Verpflegung">Ohne Verpflegung</option>
+                                                                                                                                                                                                                            </select>
+                                                                                                                                                                                                                                  </div>
+                                                                                                                                                                                                                                      </div>
+
+                                                                                                                                                                                                                                          <div class="row">
+                                                                                                                                                                                                                                                <div>
+                                                                                                                                                                                                                                                        <label for="rating">Eigene Bewertung (1–5)</label>
+                                                                                                                                                                                                                                                                <select id="rating">
+                                                                                                                                                                                                                                                                          <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                                                                                                                                                                                                                                                                                    <option value="4" selected>⭐⭐⭐⭐ (4)</option>
+                                                                                                                                                                                                                                                                                              <option value="3">⭐⭐⭐ (3)</option>
+                                                                                                                                                                                                                                                                                                        <option value="2">⭐⭐ (2)</option>
+                                                                                                                                                                                                                                                                                                                  <option value="1">⭐ (1)</option>
+                                                                                                                                                                                                                                                                                                                          </select>
+                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                      <div>
+                                                                                                                                                                                                                                                                                                                                              <label for="travelDate">Reisezeitraum</label>
+                                                                                                                                                                                                                                                                                                                                                      <input type="text" id="travelDate" placeholder="z. B. Sep 2026" />
+                                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                                                </div>
+
+                                                                                                                                                                                                                                                                                                                                                                    <label for="notes">Notiz (Pools, Rutschen, Transfer...)</label>
+                                                                                                                                                                                                                                                                                                                                                                        <textarea id="notes" rows="2" placeholder="Kurze Notiz..."></textarea>
+
+                                                                                                                                                                                                                                                                                                                                                                            <button type="submit" class="btn-primary" id="saveBtn">OSM prüfen & speichern</button>
+                                                                                                                                                                                                                                                                                                                                                                                <div class="status" id="status"></div>
+                                                                                                                                                                                                                                                                                                                                                                                  </form>
+
+                                                                                                                                                                                                                                                                                                                                                                                    <div class="card">
+                                                                                                                                                                                                                                                                                                                                                                                        <button type="button" class="btn-export" id="exportBtn">📤 CSV an OneDrive / Teilen senden</button>
+                                                                                                                                                                                                                                                                                                                                                                                            <div id="hotelList" style="margin-top: 12px;"></div>
+                                                                                                                                                                                                                                                                                                                                                                                              </div>
+
+                                                                                                                                                                                                                                                                                                                                                                                                <script src="./app.js"></script>
+                                                                                                                                                                                                                                                                                                                                                                                                </body>
+                                                                                                                                                                                                                                                                                                                                                                                                </html>
