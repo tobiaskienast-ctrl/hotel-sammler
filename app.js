@@ -4,7 +4,6 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then((reg) => reg.update()).catch(console.error);
 }
 
-// Globale Hilfsfunktion für Bogenmaß
 function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
@@ -227,7 +226,7 @@ function computeRankedHotels(list) {
 
     let portalSource = 'Direkt';
     if (h.url) {
-      if (h.url.includes('check24')) portalSource = 'Check24';
+      if (h.url.includes('check24') || h.url.includes('c.24.de')) portalSource = 'Check24';
       else if (h.url.includes('tui')) portalSource = 'TUI';
       else if (h.url.includes('holidaycheck')) portalSource = 'HolidayCheck';
       else if (h.url.includes('booking')) portalSource = 'Booking';

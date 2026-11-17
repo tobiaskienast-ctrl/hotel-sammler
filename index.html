@@ -176,14 +176,26 @@
       const rawText = params.get('text') || '';
       const rawUrl = params.get('url') || '';
 
-      if (!rawTitle && !rawText && !rawUrl) return;
-
-      const combined = (rawTitle + '\n' + rawText + '\n' + rawUrl).trim();
-      const urlMatch = combined.match(/https?:\/\/[^\s]+/i);
-      if (urlMatch) {
-        document.getElementById('url').value = urlMatch[0];
+      const combinedUrl = rawUrl || [rawTitle, rawText].join(' ').match(/https?:\/\/[^\s]+/i)?.[0] || '';
+      if (combinedUrl) {
+        document.getElementById('url').value = combinedUrl;
       }
 
+      // 1. Versuche TUI-Hotelnamen direkt aus der URL zu fischen (z.B. /pauschalreisen/.../TUI-MAGIC-LIFE-Jacaranda/...)
+      let extractedName = '';
+      if (combinedUrl.includes('tui.com')) {
+        const tuiMatch = combinedUrl.match(/\/angebote\/([^\/?#]+)/i) || combinedUrl.match(/\/hotels\/([^\/?#]+)/i);
+        if (tuiMatch && tuiMatch[1]) {
+          extractedName = tuiMatch[1].replace(/-/g, ' ').trim();
+        }
+      }
+
+      if (extractedName) {
+        document.getElementById('hotelName').value = extractedName;
+        return;
+      }
+
+      // 2. Ansonsten robuster Prosa-Filter mit Deduplizierung (verhindert doppelten Text)
       let candidate = (rawTitle + ' ' + rawText)
         .replace(/https?:\/\/[^\s]+/gi, ' ')
         .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI)[\s\S]*?/gi, ' ')
@@ -191,6 +203,16 @@
         .trim();
 
       if (candidate.length > 3) {
+        // Wort-Deduplizierung, falls Check24 den Namen doppelt sendet
+        const words = candidate.split(' ');
+        const halfLen = Math.floor(words.length / 2);
+        if (halfLen > 2) {
+          const firstHalf = words.slice(0, halfLen).join(' ');
+          const secondHalf = words.slice(halfLen, halfLen * 2).join(' ');
+          if (firstHalf.toLowerCase() === secondHalf.toLowerCase()) {
+            candidate = words.slice(0, halfLen).join(' ');
+          }
+        }
         document.getElementById('hotelName').value = candidate;
       }
     })();
@@ -218,6 +240,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=16"></script>
+  <script src="./app.js?v=17"></script>
 </body>
 </html>
