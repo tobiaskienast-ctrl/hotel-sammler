@@ -124,11 +124,28 @@ async function nominatimSearch(params) {
 const REGION_MARGIN_DEG = 0.5;
 const HOTEL_TYPES = ['hotel', 'resort', 'beach_resort', 'guest_house', 'apartment', 'hostel', 'motel', 'chalet'];
 
-function regionViewbox(place) {
+function regionBounds(place) {
   const lat = parseFloat(place.lat), lon = parseFloat(place.lon);
   const [s, n, w, e] = (place.boundingbox || [lat, lat, lon, lon]).map(Number);
   const m = REGION_MARGIN_DEG;
-  return [Math.min(w, lon) - m, Math.max(n, lat) + m, Math.max(e, lon) + m, Math.min(s, lat) - m].join(',');
+  return { west: Math.min(w, lon) - m, north: Math.max(n, lat) + m, east: Math.max(e, lon) + m, south: Math.min(s, lat) - m };
+}
+
+// Photon (OSM-Geocoder von Komoot) toleriert Tippfehler wie "Paradiso" statt "Paradisio"; Nominatim nicht.
+const PHOTON_ACCOMMODATION_TAGS = ['tourism:hotel', 'tourism:resort', 'tourism:apartment', 'tourism:guest_house', 'tourism:motel', 'tourism:hostel', 'tourism:chalet', 'leisure:resort', 'leisure:beach_resort', 'building:hotel'];
+
+async function photonSearch(q, bounds) {
+  const params = new URLSearchParams({ q, limit: '8', lang: 'de', bbox: [bounds.west, bounds.south, bounds.east, bounds.north].join(',') });
+  for (const tag of PHOTON_ACCOMMODATION_TAGS) params.append('osm_tag', tag);
+  try {
+    const data = await fetchJsonSafe(`https://photon.komoot.io/api/?${params}`, {}, 6000);
+    return (data.features || []).filter((f) => f.properties?.name).map(({ properties: p, geometry }) => ({
+      lat: geometry.coordinates[1], lon: geometry.coordinates[0], name: p.name, category: p.osm_key, type: p.osm_value,
+      address: { city: p.city || p.locality || p.district, country: p.country }
+    }));
+  } catch (err) {
+    return [];
+  }
 }
 
 function toPlaceCandidate(r, center) {
@@ -235,7 +252,8 @@ async function geocodeHotel(hotelName, location, onProgress = () => {}) {
   }
 
   const center = { lat: parseFloat(locPlace.lat), lon: parseFloat(locPlace.lon) };
-  const viewbox = regionViewbox(locPlace);
+  const bounds = regionBounds(locPlace);
+  const viewbox = [bounds.west, bounds.north, bounds.east, bounds.south].join(',');
   const searchRegion = async (q) => dedupeCandidates(
     (await nominatimSearch({ q, viewbox, bounded: '1', limit: '10' })).map((r) => toPlaceCandidate(r, center))
   );
@@ -245,7 +263,12 @@ async function geocodeHotel(hotelName, location, onProgress = () => {}) {
   if (found.length === 1) return asResult(found[0]);
   if (found.length > 1) return pick(`Mehrere Treffer für „${cleanName}" um ${cleanLocation} – welches Hotel ist gemeint?`, found, center);
 
-  // Portalnamen enthalten oft Zusätze ("... Resort & Spa", "... Red Sea"); gekürzte Treffer immer bestätigen lassen.
+  // Unscharfe Treffer (Tippfehler, andere Schreibweise) immer bestätigen lassen.
+  onProgress('Suche ähnliche Schreibweisen...');
+  const fuzzy = dedupeCandidates((await photonSearch(cleanName, bounds)).map((r) => toPlaceCandidate(r, center)));
+  if (fuzzy.length > 0) return pick(`„${cleanName}" nicht exakt gefunden. Ist es einer dieser Treffer?`, fuzzy, center);
+
+  // Portalnamen enthalten oft Zusätze ("... Resort & Spa", "... Adults Only"); gekürzte Treffer ebenfalls bestätigen lassen.
   for (const shortName of shortenedHotelNames(cleanName)) {
     onProgress(`Suche ähnliche Hotels („${shortName}")...`);
     const similar = await searchRegion(shortName);
