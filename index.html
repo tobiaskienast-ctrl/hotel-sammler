@@ -43,8 +43,8 @@
   <form id="hotelForm" class="card">
     <input type="hidden" id="editIndex" value="-1" />
 
-    <label for="url">Check24 Link</label>
-    <input type="url" id="url" placeholder="https://urlaub.check24.de/..." required />
+    <label for="url">Hotel-Link (Check24, TUI etc.)</label>
+    <input type="url" id="url" placeholder="https://urlaub.check24.de/... oder https://www.tui.com/..." required />
 
     <label for="hotelName">Hotelname (für OSM & Portal-Suche)</label>
     <input type="text" id="hotelName" placeholder="z. B. The Grand Resort" required />
@@ -85,21 +85,24 @@
         <input type="text" inputmode="decimal" id="rateC24" placeholder="9.2 oder 9,2" />
       </div>
       <div>
-        <label for="rateGoogle">Google (1–5)</label>
-        <input type="text" inputmode="decimal" id="rateGoogle" placeholder="4.6 oder 4,6" />
+        <label for="rateTUI">TUI (1–10)</label>
+        <input type="text" inputmode="decimal" id="rateTUI" placeholder="9.0 oder 9,0" />
       </div>
     </div>
 
     <div class="row">
       <div>
-        <label for="rateHC">HolidayCheck (% Empf.)</label>
-        <input type="number" id="rateHC" step="1" min="0" max="100" placeholder="92" />
+        <label for="rateGoogle">Google (1–5)</label>
+        <input type="text" inputmode="decimal" id="rateGoogle" placeholder="4.6 oder 4,6" />
       </div>
       <div>
         <label for="rateTA">TripAdvisor (1–5)</label>
         <input type="text" inputmode="decimal" id="rateTA" placeholder="4.5 oder 4,5" />
       </div>
     </div>
+
+    <label for="rateHC">HolidayCheck (% Empf. oder Note 1–6)</label>
+    <input type="number" id="rateHC" step="1" min="0" max="100" placeholder="92" />
 
     <div class="section-title">Eigene Eindrücke & Strand</div>
     <div class="row">
@@ -177,26 +180,14 @@
         document.getElementById('url').value = urlMatch[0];
       }
 
+      // Universeller Parser für Check24, TUI und andere Apps
       let candidate = (rawTitle + ' ' + rawText)
         .replace(/https?:\/\/[^\s]+/gi, ' ')
-        .replace(/Schau dir dieses Hotel[\s\S]*?an:?/gi, ' ')
-        .replace(/Folgendes Hotel habe ich bei[\s\S]*?gefunden:?/gi, ' ')
-        .replace(/Viel Spaß beim Buchen deines Traumurlaubs\.?/gi, ' ')
-        .replace(/CHECK24/gi, ' ')
+        .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI)[\s\S]*?/gi, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 
-      const words = candidate.split(' ');
-      if (words.length >= 2 && words.length % 2 === 0) {
-        const mid = words.length / 2;
-        const first = words.slice(0, mid).join(' ');
-        const second = words.slice(mid).join(' ');
-        if (first.toLowerCase() === second.toLowerCase()) {
-          candidate = first;
-        }
-      }
-
-      if (candidate) {
+      if (candidate.length > 3) {
         document.getElementById('hotelName').value = candidate;
       }
     })();
@@ -222,6 +213,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=14"></script>
+  <script src="./app.js?v=15"></script>
 </body>
 </html>

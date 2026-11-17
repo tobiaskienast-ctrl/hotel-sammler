@@ -4,7 +4,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then((reg) => reg.update()).catch(console.error);
 }
 
-// 1. Globale Hilfsfunktion für Bogenmaß (Grad zu Radiant) ganz oben definiert
+// Globale Hilfsfunktion für Bogenmaß
 function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
@@ -184,6 +184,7 @@ function computeRankedHotels(list) {
   const scored = list.map((h, origIndex) => {
     const portalNorms = [
       normalizeRating(h.rateC24, 7.0, 10.0),
+      normalizeRating(h.rateTUI, 7.0, 10.0),
       normalizeRating(h.rateGoogle, 3.5, 5.0),
       normalizeHolidayCheck(h.rateHC),
       normalizeRating(h.rateTA, 3.5, 5.0)
@@ -224,7 +225,16 @@ function computeRankedHotels(list) {
     if (price > 0) plScore = totalQuality / Math.pow(price / 1000, 0.65);
     plScore = Math.round(plScore * 10) / 10;
 
-    return { ...h, origIndex, normalizedPortal10, totalQuality, premiumBonusPct: Math.round((premiumBonusFactor - 1) * 100), plScore };
+    // Portal-Quelle ermitteln
+    let portalSource = 'Direkt';
+    if (h.url) {
+      if (h.url.includes('check24')) portalSource = 'Check24';
+      else if (h.url.includes('tui')) portalSource = 'TUI';
+      else if (h.url.includes('holidaycheck')) portalSource = 'HolidayCheck';
+      else if (h.url.includes('booking')) portalSource = 'Booking';
+    }
+
+    return { ...h, origIndex, normalizedPortal10, totalQuality, premiumBonusPct: Math.round((premiumBonusFactor - 1) * 100), plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -246,6 +256,7 @@ function editHotel(origIndex) {
   document.getElementById('price').value = h.price || '';
   document.getElementById('board').value = h.board || 'All Inclusive';
   const c24 = document.getElementById('rateC24'); if (c24) c24.value = h.rateC24 || '';
+  const tui = document.getElementById('rateTUI'); if (tui) tui.value = h.rateTUI || '';
   const g = document.getElementById('rateGoogle'); if (g) g.value = h.rateGoogle || '';
   const hc = document.getElementById('rateHC'); if (hc) hc.value = h.rateHC || '';
   const ta = document.getElementById('rateTA'); if (ta) ta.value = h.rateTA || '';
@@ -276,6 +287,7 @@ function renderList() {
     const hcDisplay = h.rateHC ? (Number(h.rateHC) <= 6 ? `HC: ${h.rateHC}/6` : `HC: ${h.rateHC}%`) : null;
     const portals = [
       h.rateC24 ? `C24: ${h.rateC24}/10` : null,
+      h.rateTUI ? `TUI: ${h.rateTUI}/10` : null,
       h.rateGoogle ? `G: ${h.rateGoogle}/5` : null,
       hcDisplay,
       h.rateTA ? `TA: ${h.rateTA}/5` : null
@@ -285,7 +297,7 @@ function renderList() {
       <div class="item ${isWinner ? 'winner' : ''}">
         <div class="item-head">
           <div>
-            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'})</span><br/>
+            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}) [${h.portalSource}]</span><br/>
             <span class="score-pill">P/L-Score: ${h.plScore} Pkt. · Quali: ${h.totalQuality}${h.normalizedPortal10 !== null ? ` · Portale: ${h.normalizedPortal10}/10` : ''}${h.premiumBonusPct > 0 ? ` (+${h.premiumBonusPct}% Bonus)` : ''}</span>
           </div>
           <div style="display:flex;gap:4px;">
@@ -339,6 +351,7 @@ if (formEl) {
         price: document.getElementById('price').value.trim(),
         board: document.getElementById('board').value,
         rateC24: document.getElementById('rateC24')?.value.trim().replace(',', '.') || '',
+        rateTUI: document.getElementById('rateTUI')?.value.trim().replace(',', '.') || '',
         rateGoogle: document.getElementById('rateGoogle')?.value.trim().replace(',', '.') || '',
         rateHC: document.getElementById('rateHC')?.value.trim().replace(',', '.') || '',
         rateTA: document.getElementById('rateTA')?.value.trim().replace(',', '.') || '',
@@ -375,15 +388,16 @@ if (exportBtn) {
     if (ranked.length === 0) { alert('Keine Hotels vorhanden.'); return; }
     
     const headers = [
-      'Rang', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
+      'Rang', 'Portal_Quelle', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
       'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
-      'CHECK24_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
+      'CHECK24_10', 'TUI_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
-      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Check24_Link'
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link'
     ];
 
     const rows = ranked.map((h, idx) => [
       idx + 1,
+      h.portalSource,
       String(h.plScore ?? '').replace('.', ','),
       String(h.totalQuality ?? '').replace('.', ','),
       h.normalizedPortal10 !== null ? String(h.normalizedPortal10).replace('.', ',') : '',
@@ -394,6 +408,7 @@ if (exportBtn) {
       h.price,
       h.board,
       String(h.rateC24 ?? '').replace('.', ','),
+      String(h.rateTUI ?? '').replace('.', ','),
       String(h.rateGoogle ?? '').replace('.', ','),
       String(h.rateHC ?? '').replace('.', ','),
       String(h.rateTA ?? '').replace('.', ','),
@@ -410,14 +425,14 @@ if (exportBtn) {
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
-    const file = new File([csvContent], 'check24_hotels_ranking.csv', { type: 'text/csv;charset=utf-8;' });
+    const file = new File([csvContent], 'hotel_ranking.csv', { type: 'text/csv;charset=utf-8;' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ title: 'Check24 Hotels Ranking', files: [file] }); return; } catch (e) {}
+      try { await navigator.share({ title: 'Hotel Ranking', files: [file] }); return; } catch (e) {}
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(file);
-    a.download = 'check24_hotels_ranking.csv';
+    a.download = 'hotel_ranking.csv';
     a.click();
   });
 }
