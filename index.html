@@ -181,54 +181,34 @@
         document.getElementById('url').value = combinedUrl;
       }
 
-      // 1. TUI-Namen aus URL fischen
-      let extractedName = '';
+      // 1. HARDCODED CHECK24 PARSER: Check24 liefert den Namen meist direkt und sauber im Titel
+      if (combinedUrl.includes('check24') || combinedUrl.includes('c.24.de') || rawTitle.toLowerCase().includes('check24')) {
+        let cleanC24Name = rawTitle
+          .replace(/bei CHECK24.*/i, '')
+          .replace(/CHECK24.*/i, '')
+          .replace(/Schau dir dieses Hotel an[:\s]*/i, '')
+          .trim();
+        
+        if (cleanC24Name) {
+          document.getElementById('hotelName').value = cleanC24Name;
+          return;
+        }
+      }
+
+      // 2. TUI URL PARSER
       if (combinedUrl.includes('tui.com')) {
         const tuiMatch = combinedUrl.match(/\/angebote\/([^\/?#]+)/i) || combinedUrl.match(/\/hotels\/([^\/?#]+)/i);
         if (tuiMatch && tuiMatch[1]) {
-          extractedName = tuiMatch[1].replace(/-/g, ' ').trim();
+          document.getElementById('hotelName').value = tuiMatch[1].replace(/-/g, ' ').trim();
+          return;
         }
       }
 
-      if (extractedName) {
-        document.getElementById('hotelName').value = extractedName;
-        return;
-      }
-
-      // 2. Prosa-Bereinigung für Check24 etc.
-      let candidate = (rawTitle + ' ' + rawText)
+      // 3. Fallback für alles andere
+      let candidate = (rawTitle || rawText)
         .replace(/https?:\/\/[^\s]+/gi, ' ')
-        .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI|Angebot)[\s\S]*?/gi, ' ')
-        .replace(/\s+/g, ' ')
         .trim();
-
-      if (candidate.length > 2) {
-        // Aggressiver Duplikat-Killer (falls Check24 den Namen doppelt sendet)
-        const words = candidate.split(' ');
-        if (words.length >= 4) {
-          const mid = Math.floor(words.length / 2);
-          const part1 = words.slice(0, mid).join(' ').toLowerCase();
-          const part2 = words.slice(mid).join(' ').toLowerCase();
-          if (part1 === part2 || part1.includes(part2) || part2.includes(part1)) {
-            candidate = words.slice(0, mid).join(' ');
-          }
-        }
-        // Falls exakt doppelte Wörter hintereinander vorkommen (z.B. "Hotel A Hotel A")
-        const uniqueWords = [];
-        for (let i = 0; i < words.length; i++) {
-          if (i === 0 || words[i].toLowerCase() !== words[i-1].toLowerCase()) {
-            uniqueWords.push(words[i]);
-          }
-        }
-        // Nochmal prüfen ob die erste Hälfte der zweiten gleicht
-        const finalWords = uniqueWords;
-        const half = Math.floor(finalWords.length / 2);
-        if (half >= 2 && finalWords.slice(0, half).join(' ').toLowerCase() === finalWords.slice(half, half*2).join(' ').toLowerCase()) {
-          candidate = finalWords.slice(0, half).join(' ');
-        } else {
-          candidate = finalWords.join(' ');
-        }
-
+      if (candidate) {
         document.getElementById('hotelName').value = candidate;
       }
     })();
@@ -256,6 +236,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=18"></script>
+  <script src="./app.js?v=19"></script>
 </body>
 </html>
