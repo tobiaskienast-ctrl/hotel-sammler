@@ -405,11 +405,17 @@ if (exportBtn) {
       h.url
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
-    const file = new File(['\uFEFF' + [headers.join(';'), ...rows].join('\n')], 'check24_hotels_ranking.csv', { type: 'text/csv;charset=utf-8;' });
+    // Explizites UTF-8 BOM für mobile Tabellenkalkulationen (Sheets/Excel)
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
+    const file = new File([csvContent], 'check24_hotels_ranking.csv', { type: 'text/csv;charset=utf-8' });
+
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ title: 'Check24 Hotels Ranking', files: [file] }); return; } catch (e) {}
     }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = 'check24_hotels_ranking.csv'; a.click();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = 'check24_hotels_ranking.csv';
+    a.click();
   });
 }
 
