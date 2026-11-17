@@ -34,6 +34,8 @@
     .score-pill { display: inline-block; background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.75rem; padding: 2px 7px; border-radius: 999px; margin-top: 4px; }
     .winner .score-pill { border-color: var(--gold); color: var(--gold); }
     .meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; line-height: 1.4; }
+    .attribution { color: var(--muted); font-size: 0.72rem; text-align: center; line-height: 1.5; margin: 4px 0 16px; }
+    .attribution a { color: var(--muted); }
     .section-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #38bdf8; margin: 14px 0 2px; border-top: 1px solid #334155; padding-top: 10px; }
   </style>
 </head>
@@ -169,6 +171,13 @@
     <div id="hotelList" style="margin-top: 14px;"></div>
   </div>
 
+  <footer class="attribution">
+    Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)<br />
+    Geocoding: <a href="https://nominatim.org/" target="_blank" rel="noopener">Nominatim</a> ·
+    Routing: <a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM</a> (Server: <a href="https://www.fossgis.de/" target="_blank" rel="noopener">FOSSGIS</a>) ·
+    Meeresabstand: <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>
+  </footer>
+
   <script>
     (function fillFromShare() {
       const params = new URLSearchParams(window.location.search);
@@ -236,6 +245,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=20"></script>
+  <script src="./app.js?v=21"></script>
 </body>
 </html>

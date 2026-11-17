@@ -96,6 +96,16 @@ async function fetchJsonSafe(url, options = {}, timeoutMs = 6000) {
   } finally { clearTimeout(timer); }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Nominatim-Nutzungsrichtlinie: max. 1 Anfrage pro Sekunde (https://operations.osmfoundation.org/policies/nominatim/)
+let lastNominatimRequestAt = 0;
+async function throttleNominatim() {
+  const wait = lastNominatimRequestAt + 1100 - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastNominatimRequestAt = Date.now();
+}
+
 async function geocodeHotel(hotelName, location) {
   const headers = { 'Accept-Language': 'de', 'User-Agent': 'HotelSammlerPWA/1.0' };
   const cleanLocation = location.normalize('NFC');
@@ -103,6 +113,7 @@ async function geocodeHotel(hotelName, location) {
   
   for (const q of [`${cleanName}, ${cleanLocation}`, cleanLocation]) {
     try {
+      await throttleNominatim();
       const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
       const data = await fetchJsonSafe(url, { headers }, 6000);
       if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), exact: q.includes(cleanName) };
@@ -266,9 +277,16 @@ async function oceanDistanceAtZoom(tileUrl, lat, lon, zoom) {
 
   const coords = [];
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) coords.push([cx + dx, cy + dy]);
-  const tiles = await Promise.all(coords.map(async ([tx, ty]) => ({
-    tx, ty, ...(await fetchOceanTile(tileUrl, zoom, ((tx % n) + n) % n, ty))
-  })));
+  // OpenFreeMap-ToS: höchstens 4 parallele Anfragen
+  const tiles = new Array(coords.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (next < coords.length) {
+      const i = next++;
+      const [tx, ty] = coords[i];
+      tiles[i] = { tx, ty, ...(await fetchOceanTile(tileUrl, zoom, ((tx % n) + n) % n, ty)) };
+    }
+  }));
 
   let best = Infinity; // in Kacheleinheiten
   for (const { tx, ty, extent: e, rings } of tiles) {
