@@ -27,6 +27,11 @@
     .btn-small { background: #334155; color: #e2e8f0; width: auto; padding: 4px 8px; margin: 0; font-size: 0.78rem; }
     .btn-del { background: transparent; color: var(--danger); width: auto; padding: 4px 8px; margin: 0; font-size: 0.85rem; }
     .status { font-size: 0.85rem; color: #38bdf8; margin-top: 10px; min-height: 1.2em; word-break: break-word; }
+    .chooser { margin-top: 10px; padding: 10px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(245, 158, 11, 0.06); }
+    .chooser-msg { font-size: 0.85rem; color: var(--gold); margin-bottom: 4px; }
+    .btn-choice { background: #334155; color: var(--text); text-align: left; font-size: 0.9rem; padding: 10px; margin-top: 8px; }
+    .btn-choice-warn { background: transparent; border: 1px dashed #475569; }
+    .chooser-sub { display: block; font-weight: 400; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
     .item { border-bottom: 1px solid #334155; padding: 12px 0; font-size: 0.9rem; }
     .item:last-child { border-bottom: none; }
     .item.winner { background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
@@ -163,6 +168,7 @@
 
     <button type="submit" class="btn-primary" id="saveBtn">OSM prüfen & im Ranking speichern</button>
     <div class="status" id="status"></div>
+    <div class="chooser" id="placeChooser" hidden></div>
   </form>
 
   <div class="card">
@@ -245,6 +251,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=21"></script>
+  <script src="./app.js?v=22"></script>
 </body>
 </html>

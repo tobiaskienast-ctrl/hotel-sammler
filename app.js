@@ -106,20 +106,153 @@ async function throttleNominatim() {
   lastNominatimRequestAt = Date.now();
 }
 
-async function geocodeHotel(hotelName, location) {
+async function nominatimSearch(params) {
+  const query = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', ...params });
   const headers = { 'Accept-Language': 'de', 'User-Agent': 'HotelSammlerPWA/1.0' };
-  const cleanLocation = location.normalize('NFC');
-  const cleanName = hotelName.normalize('NFC');
-  
-  for (const q of [`${cleanName}, ${cleanLocation}`, cleanLocation]) {
+  // Ein Netzwerkfehler wird einmal wiederholt, damit nicht unnötig auf die ungenauere Suche ausgewichen wird.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await throttleNominatim();
     try {
-      await throttleNominatim();
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
-      const data = await fetchJsonSafe(url, { headers }, 6000);
-      if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), exact: q.includes(cleanName) };
+      const data = await fetchJsonSafe(`https://nominatim.openstreetmap.org/search?${query}`, { headers }, 6000);
+      return Array.isArray(data) ? data : [];
     } catch (err) {}
   }
-  throw new Error('Ort konnte auf OpenStreetMap nicht gefunden werden.');
+  return [];
+}
+
+// Hotels werden nur in dieser Umgebung des Zielorts gesucht (Portale fassen z. B. El Gouna oder Makadi unter "Hurghada" zusammen).
+const REGION_MARGIN_DEG = 0.5;
+const HOTEL_TYPES = ['hotel', 'resort', 'beach_resort', 'guest_house', 'apartment', 'hostel', 'motel', 'chalet'];
+
+function regionViewbox(place) {
+  const lat = parseFloat(place.lat), lon = parseFloat(place.lon);
+  const [s, n, w, e] = (place.boundingbox || [lat, lat, lon, lon]).map(Number);
+  const m = REGION_MARGIN_DEG;
+  return [Math.min(w, lon) - m, Math.max(n, lat) + m, Math.max(e, lon) + m, Math.min(s, lat) - m].join(',');
+}
+
+function toPlaceCandidate(r, center) {
+  const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+  const a = r.address || {};
+  const name = r.name || r.display_name.split(',')[0].trim();
+  const area = a.village || a.town || a.city || a.municipality || a.suburb || a.county || '';
+  const label = [area, a.country].filter((part) => part && part !== name).join(', ');
+  return {
+    lat, lon, name, label,
+    isHotel: r.category === 'tourism' || HOTEL_TYPES.includes(r.type),
+    distKm: center ? haversineMeters(center.lat, center.lon, lat, lon) / 1000 : null
+  };
+}
+
+// OSM führt Hotels oft doppelt (Gelände + Punkt); gleichnamige Treffer innerhalb 1 km gelten als ein Hotel.
+function dedupeCandidates(candidates) {
+  const result = [];
+  for (const c of candidates) {
+    const dupIdx = result.findIndex((o) => o.name.toLowerCase() === c.name.toLowerCase() && haversineMeters(o.lat, o.lon, c.lat, c.lon) < 1000);
+    if (dupIdx === -1) result.push(c);
+    else if (c.isHotel && !result[dupIdx].isHotel) result[dupIdx] = c;
+  }
+  return result.sort((x, y) => Number(y.isHotel) - Number(x.isHotel));
+}
+
+function shortenedHotelNames(name) {
+  const words = name.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  const out = [];
+  for (let n = words.length - 1; n >= 2 && out.length < 5; n--) out.push(words.slice(0, n).join(' '));
+  return out;
+}
+
+function getPlaceChooser() {
+  let box = document.getElementById('placeChooser');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'placeChooser';
+    box.className = 'chooser';
+    document.getElementById('status')?.after(box);
+  }
+  return box;
+}
+
+// Zeigt eine Auswahl an und liefert den gewählten Kandidaten bzw. null bei Abbruch.
+function choosePlace(message, candidates, center, locationLabel) {
+  return new Promise((resolve) => {
+    const box = getPlaceChooser();
+    box.replaceChildren();
+    box.hidden = false;
+    const finish = (value) => { box.hidden = true; box.replaceChildren(); resolve(value); };
+
+    const msg = document.createElement('div');
+    msg.className = 'chooser-msg';
+    msg.textContent = message;
+    box.append(msg);
+
+    const addButton = (title, subtitle, className, value) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = className;
+      b.textContent = title;
+      if (subtitle) {
+        const sub = document.createElement('span');
+        sub.className = 'chooser-sub';
+        sub.textContent = subtitle;
+        b.append(sub);
+      }
+      b.addEventListener('click', () => finish(value));
+      box.append(b);
+    };
+
+    for (const c of candidates) {
+      const dist = c.distKm !== null ? `${c.distKm.toFixed(1).replace('.', ',')} km von ${locationLabel}` : '';
+      addButton(`${c.isHotel ? '🏨' : '📌'} ${c.name}`, [c.label, dist].filter(Boolean).join(' · '), 'btn-choice', c);
+    }
+    if (center) {
+      addButton(`📍 Ortszentrum „${locationLabel}" verwenden`, 'Meeres- & Flughafenabstand werden dann ungenau', 'btn-choice btn-choice-warn', { ...center, isCenter: true });
+    }
+    addButton('Abbrechen', '', 'btn-clear', null);
+  });
+}
+
+async function geocodeHotel(hotelName, location, onProgress = () => {}) {
+  const cleanLocation = location.normalize('NFC');
+  const cleanName = hotelName.normalize('NFC');
+  const asResult = (c) => ({ lat: c.lat, lon: c.lon, exact: !c.isCenter, matchName: c.isCenter ? '' : [c.name, c.label].filter(Boolean).join(', ') });
+  const pick = async (message, candidates, center) => {
+    const chosen = await choosePlace(message, candidates, center, cleanLocation);
+    if (!chosen) throw new Error('Speichern abgebrochen – Hotelname oder Ort anpassen.');
+    return asResult(chosen);
+  };
+
+  onProgress('Suche Zielort...');
+  const [locPlace] = await nominatimSearch({ q: cleanLocation, limit: '1' });
+
+  if (!locPlace) {
+    // Ohne Zielort-Koordinaten bleibt nur die kombinierte Freitextsuche.
+    onProgress('Suche Hotel...');
+    const found = dedupeCandidates((await nominatimSearch({ q: `${cleanName}, ${cleanLocation}`, limit: '8' })).map((r) => toPlaceCandidate(r, null)));
+    if (found.length === 1) return asResult(found[0]);
+    if (found.length > 1) return pick(`Mehrere Treffer für „${cleanName}" – welches Hotel ist gemeint?`, found, null);
+    throw new Error('Ort konnte auf OpenStreetMap nicht gefunden werden.');
+  }
+
+  const center = { lat: parseFloat(locPlace.lat), lon: parseFloat(locPlace.lon) };
+  const viewbox = regionViewbox(locPlace);
+  const searchRegion = async (q) => dedupeCandidates(
+    (await nominatimSearch({ q, viewbox, bounded: '1', limit: '10' })).map((r) => toPlaceCandidate(r, center))
+  );
+
+  onProgress(`Suche Hotel in der Umgebung von ${cleanLocation}...`);
+  const found = await searchRegion(cleanName);
+  if (found.length === 1) return asResult(found[0]);
+  if (found.length > 1) return pick(`Mehrere Treffer für „${cleanName}" um ${cleanLocation} – welches Hotel ist gemeint?`, found, center);
+
+  // Portalnamen enthalten oft Zusätze ("... Resort & Spa", "... Red Sea"); gekürzte Treffer immer bestätigen lassen.
+  for (const shortName of shortenedHotelNames(cleanName)) {
+    onProgress(`Suche ähnliche Hotels („${shortName}")...`);
+    const similar = await searchRegion(shortName);
+    if (similar.length > 0) return pick(`„${cleanName}" nicht exakt gefunden. Ist es einer dieser Treffer?`, similar, center);
+  }
+
+  return pick(`„${cleanName}" wurde um ${cleanLocation} nicht auf OpenStreetMap gefunden.`, [], center);
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -449,6 +582,10 @@ function editHotel(origIndex) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+
 function renderList() {
   const ranked = computeRankedHotels(getHotels());
   const badge = document.getElementById('countBadge');
@@ -484,7 +621,7 @@ function renderList() {
             <button type="button" class="btn-del" onclick="deleteHotel(${h.origIndex})">✕</button>
           </div>
         </div>
-        <div class="meta">📍 ${h.location} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
+        <div class="meta">📍 ${h.location}${h.exactMatch === 'Ortszentrum' ? ' (⚠️ nur Ortszentrum)' : h.osmMatch ? ` (OSM: ${escapeHtml(h.osmMatch)})` : ''} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
         <div class="meta">${h.board} · ⭐ ${h.rating} ${portals ? `· 📊 ${portals}` : ''}</div>
         <div class="meta">🏖️ ${h.beachType || '?'} (${h.beachShade || '?'})</div>
       </div>`;
@@ -505,15 +642,16 @@ if (formEl) {
     const list = getHotels(), existing = editIndex >= 0 ? list[editIndex] : null;
 
     try {
-      let airportIata = existing?.airportIata || '', airportMinutes = existing?.airportMinutes ?? '', beachMeters = existing?.beachMeters ?? '', exactMatch = existing?.exactMatch || '';
+      let airportIata = existing?.airportIata || '', airportMinutes = existing?.airportMinutes ?? '', beachMeters = existing?.beachMeters ?? '', exactMatch = existing?.exactMatch || '', osmMatch = existing?.osmMatch || '';
 
       if (!existing || existing.hotelName !== hotelName || existing.location !== location) {
         if (status) status.textContent = '1/3 Suche Koordinaten...';
-        const coords = await geocodeHotel(hotelName, location);
+        const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/3 ${msg}`; });
         if (status) status.textContent = '2/3 Suche Strand & Flughafen...';
         const airport = findNearestAirport(coords.lat, coords.lon);
         beachMeters = (await findNearestBeachMeters(coords.lat, coords.lon)) ?? '';
         exactMatch = coords.exact ? 'Exakt' : 'Ortszentrum';
+        osmMatch = coords.matchName;
 
         if (airport) {
           if (status) status.textContent = `3/3 Berechne Fahrtdauer nach ${airport.iata}...`;
@@ -539,7 +677,7 @@ if (formEl) {
         beachType: document.getElementById('beachType').value,
         beachShade: document.getElementById('beachShade').value,
         travelDate: document.getElementById('travelDate').value.trim(),
-        airportIata, airportMinutes, beachMeters, exactMatch,
+        airportIata, airportMinutes, beachMeters, exactMatch, osmMatch,
         notes: document.getElementById('notes').value.trim(),
         url: document.getElementById('url').value.trim()
       };
