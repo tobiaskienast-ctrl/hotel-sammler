@@ -4,6 +4,11 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').then((reg) => reg.update()).catch(console.error);
 }
 
+// 1. Globale Hilfsfunktion für Bogenmaß (Grad zu Radiant) ganz oben definiert
+function toRad(deg) {
+  return (deg * Math.PI) / 180;
+}
+
 const AIRPORTS = [
   { iata: 'AYT', name: 'Antalya', lat: 36.8987, lon: 30.8005 },
   { iata: 'GZP', name: 'Gazipaşa-Alanya', lat: 36.2992, lon: 32.3006 },
@@ -108,8 +113,9 @@ async function geocodeHotel(hotelName, location) {
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000, toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
