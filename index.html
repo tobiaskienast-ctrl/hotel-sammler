@@ -72,14 +72,18 @@
       </div>
     </div>
 
-    <div class="section-title">Portal-Bewertungen (Komma oder Punkt egal)</div>
+    <div class="section-title">Portal-Bewertungen & Schnellsuche</div>
+    <div class="row" style="grid-template-columns: 1fr 1fr; margin-bottom: 4px;">
+      <button type="button" class="btn-search" onclick="openPortalSearch('c24')">🔍 CHECK24 suchen</button>
+      <button type="button" class="btn-search" onclick="openPortalSearch('tui')">🔍 TUI suchen</button>
+    </div>
     <div class="row-3">
       <button type="button" class="btn-search" onclick="openPortalSearch('google')">🔍 Google</button>
       <button type="button" class="btn-search" onclick="openPortalSearch('hc')">🔍 HolidayCheck</button>
       <button type="button" class="btn-search" onclick="openPortalSearch('ta')">🔍 TripAdvisor</button>
     </div>
 
-    <div class="row">
+    <div class="row" style="margin-top: 10px;">
       <div>
         <label for="rateC24">CHECK24 (1–10)</label>
         <input type="text" inputmode="decimal" id="rateC24" placeholder="9.2 oder 9,2" />
@@ -180,7 +184,6 @@
         document.getElementById('url').value = urlMatch[0];
       }
 
-      // Universeller Parser für Check24, TUI und andere Apps
       let candidate = (rawTitle + ' ' + rawText)
         .replace(/https?:\/\/[^\s]+/gi, ' ')
         .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI)[\s\S]*?/gi, ' ')
@@ -201,6 +204,8 @@
       }
       const query = encodeURIComponent(`${name} ${loc}`.trim());
       let url = `https://www.google.com/search?q=${query}+bewertung`;
+      if (portal === 'c24') url = `https://www.google.com/search?q=site:check24.de+${query}`;
+      if (portal === 'tui') url = `https://www.google.com/search?q=site:tui.com+${query}`;
       if (portal === 'hc') url = `https://www.google.com/search?q=site:holidaycheck.de+${query}`;
       if (portal === 'ta') url = `https://www.google.com/search?q=site:tripadvisor.de+${query}`;
       window.open(url, '_blank');
@@ -213,6 +218,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=15"></script>
+  <script src="./app.js?v=16"></script>
 </body>
 </html>

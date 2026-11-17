@@ -225,7 +225,6 @@ function computeRankedHotels(list) {
     if (price > 0) plScore = totalQuality / Math.pow(price / 1000, 0.65);
     plScore = Math.round(plScore * 10) / 10;
 
-    // Portal-Quelle ermitteln
     let portalSource = 'Direkt';
     if (h.url) {
       if (h.url.includes('check24')) portalSource = 'Check24';

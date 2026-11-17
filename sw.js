@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hotel-sammler-v15';
+const CACHE_NAME = 'hotel-sammler-v16';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
