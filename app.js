@@ -362,7 +362,7 @@ if (formEl) {
   });
 }
 
-// HTML-Tabellen Export (Löst das Umlaute-Problem in Google Sheets/Excel auf Handy & Laptop perfekt)
+// Echter, sauberer CSV-Export mit Semikolon-Trennzeichen-Deklaration für Excel & Sheets
 const exportBtn = document.getElementById('exportBtn');
 if (exportBtn) {
   exportBtn.addEventListener('click', async () => {
@@ -370,74 +370,51 @@ if (exportBtn) {
     if (ranked.length === 0) { alert('Keine Hotels vorhanden.'); return; }
     
     const headers = [
-      'Rang', 'PL-Score', 'Qualitäts-Punkte', 'Portal-Schnitt (10)', 'Premium-Bonus (%)',
-      'Datum', 'Hotel', 'Ort', 'Preis (€)', 'Verpflegung',
-      'CHECK24 (10)', 'Google (5)', 'HolidayCheck (%)', 'TripAdvisor (5)', 'Eigene Bewertung',
-      'Strand-Art', 'Strand-Schatten', 'Entfernung Strand (m)', 'Flughafen', 'Fahrtdauer Flughafen (Min)',
-      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Check24-Link'
+      'Rang', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
+      'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
+      'CHECK24_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
+      'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Check24_Link'
     ];
 
-    const rowsHtml = ranked.map((h, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td>${String(h.plScore ?? '').replace('.', ',')}</td>
-        <td>${String(h.totalQuality ?? '').replace('.', ',')}</td>
-        <td>${h.normalizedPortal10 !== null ? String(h.normalizedPortal10).replace('.', ',') : ''}</td>
-        <td>${h.premiumBonusPct ?? 0}%</td>
-        <td>${h.datum ?? ''}</td>
-        <td>${h.hotelName ?? ''}</td>
-        <td>${h.location ?? ''}</td>
-        <td>${h.price ?? ''}</td>
-        <td>${h.board ?? ''}</td>
-        <td>${String(h.rateC24 ?? '').replace('.', ',')}</td>
-        <td>${String(h.rateGoogle ?? '').replace('.', ',')}</td>
-        <td>${String(h.rateHC ?? '').replace('.', ',')}</td>
-        <td>${String(h.rateTA ?? '').replace('.', ',')}</td>
-        <td>${String(h.rating ?? '').replace('.', ',')}</td>
-        <td>${h.beachType ?? ''}</td>
-        <td>${h.beachShade ?? ''}</td>
-        <td>${h.beachMeters ?? ''}</td>
-        <td>${h.airportIata ?? ''}</td>
-        <td>${h.airportMinutes ?? ''}</td>
-        <td>${h.playground ?? ''}</td>
-        <td>${h.travelDate ?? ''}</td>
-        <td>${h.notes ?? ''}</td>
-        <td>${h.url ? `<a href="${h.url}">${h.url}</a>` : ''}</td>
-      </tr>
-    `).join('');
+    const rows = ranked.map((h, idx) => [
+      idx + 1,
+      String(h.plScore ?? '').replace('.', ','),
+      String(h.totalQuality ?? '').replace('.', ','),
+      h.normalizedPortal10 !== null ? String(h.normalizedPortal10).replace('.', ',') : '',
+      h.premiumBonusPct,
+      h.datum,
+      h.hotelName,
+      h.location,
+      h.price,
+      h.board,
+      String(h.rateC24 ?? '').replace('.', ','),
+      String(h.rateGoogle ?? '').replace('.', ','),
+      String(h.rateHC ?? '').replace('.', ','),
+      String(h.rateTA ?? '').replace('.', ','),
+      String(h.rating ?? '').replace('.', ','),
+      h.beachType,
+      h.beachShade,
+      h.beachMeters,
+      h.airportIata,
+      h.airportMinutes,
+      h.playground,
+      h.travelDate,
+      h.notes,
+      h.url
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
-    const htmlContent = `<!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt; }
-        th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; }
-        th { background-color: #2563eb; color: white; font-weight: bold; }
-        tr:nth-child(even) { background-color: #f8fafc; }
-      </style>
-    </head>
-    <body>
-      <table>
-        <thead>
-          <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    </body>
-    </html>`;
-
-    // Als .xls-Datei exportieren (wird von Excel & Google Sheets nativ mit korrektem UTF-8 geöffnet)
-    const file = new File([htmlContent], 'check24_hotels_ranking.xls', { type: 'application/vnd.ms-excel;charset=utf-8' });
+    // 'sep=;' zwingt Excel und Sheets dazu, das Semikolon sofort korrekt als Spaltentrennzeichen zu erkennen
+    // \uFEFF sorgt für das UTF-8 Encoding (Umlaute Ä, Ö, Ü passen)
+    const csvContent = '\uFEFFsep=;\n' + [headers.join(';'), ...rows].join('\n');
+    const file = new File([csvContent], 'check24_hotels_ranking.csv', { type: 'text/csv;charset=utf-8' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ title: 'Check24 Hotels Ranking', files: [file] }); return; } catch (e) {}
     }
     const a = document.createElement('a');
-    a.href = URL.current ? URL.createObjectURL(file) : URL.createObjectURL(file);
-    a.download = 'check24_hotels_ranking.xls';
+    a.href = URL.createObjectURL(file);
+    a.download = 'check24_hotels_ranking.csv';
     a.click();
   });
 }
