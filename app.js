@@ -9,16 +9,74 @@ const AIRPORTS = [
   { iata: 'GZP', name: 'Gazipaşa-Alanya', lat: 36.2992, lon: 32.3006 },
   { iata: 'DLM', name: 'Dalaman', lat: 36.7131, lon: 28.7925 },
   { iata: 'BJV', name: 'Bodrum-Milas', lat: 37.2506, lon: 27.6643 },
+  { iata: 'ADB', name: 'Izmir', lat: 38.2924, lon: 27.1570 },
+  { iata: 'LCA', name: 'Larnaka', lat: 34.8751, lon: 33.6249 },
+  { iata: 'PFO', name: 'Paphos', lat: 34.7180, lon: 32.4857 },
   { iata: 'HRG', name: 'Hurghada', lat: 27.1783, lon: 33.7994 },
+  { iata: 'RMF', name: 'Marsa Alam', lat: 25.5571, lon: 34.5837 },
+  { iata: 'SSH', name: 'Sharm El Sheikh', lat: 27.9773, lon: 34.3950 },
+  { iata: 'DJE', name: 'Djerba-Zarzis', lat: 33.8750, lon: 10.7755 },
+  { iata: 'MIR', name: 'Monastir', lat: 35.7581, lon: 10.7547 },
+  { iata: 'NBE', name: 'Enfidha-Hammamet', lat: 36.0758, lon: 10.4386 },
+  { iata: 'AGA', name: 'Agadir', lat: 30.3250, lon: -9.4131 },
+  { iata: 'RAK', name: 'Marrakesch', lat: 31.6069, lon: -8.0363 },
   { iata: 'PMI', name: 'Palma de Mallorca', lat: 39.5517, lon: 2.7388 },
+  { iata: 'IBZ', name: 'Ibiza', lat: 38.8729, lon: 1.3731 },
+  { iata: 'MAH', name: 'Menorca', lat: 39.8626, lon: 4.2186 },
   { iata: 'LPA', name: 'Gran Canaria', lat: 27.9319, lon: -15.3866 },
   { iata: 'TFS', name: 'Teneriffa Süd', lat: 28.0445, lon: -16.5725 },
+  { iata: 'TFN', name: 'Teneriffa Nord', lat: 28.4827, lon: -16.3415 },
+  { iata: 'FUE', name: 'Fuerteventura', lat: 28.4527, lon: -13.8638 },
+  { iata: 'ACE', name: 'Lanzarote', lat: 28.9455, lon: -13.6052 },
+  { iata: 'SPC', name: 'La Palma', lat: 28.6265, lon: -17.7556 },
+  { iata: 'AGP', name: 'Málaga', lat: 36.6749, lon: -4.4991 },
+  { iata: 'ALC', name: 'Alicante', lat: 38.2822, lon: -0.5582 },
+  { iata: 'BCN', name: 'Barcelona', lat: 41.2974, lon: 2.0833 },
+  { iata: 'GRO', name: 'Girona', lat: 41.9010, lon: 2.7606 },
+  { iata: 'XRY', name: 'Jerez de la Frontera', lat: 36.7446, lon: -6.0601 },
   { iata: 'FAO', name: 'Faro (Algarve)', lat: 37.0144, lon: -7.9659 },
+  { iata: 'FNC', name: 'Funchal (Madeira)', lat: 32.6979, lon: -16.7745 },
+  { iata: 'LIS', name: 'Lissabon', lat: 38.7742, lon: -9.1342 },
+  { iata: 'OPO', name: 'Porto', lat: 41.2481, lon: -8.6814 },
   { iata: 'HER', name: 'Heraklion (Kreta)', lat: 35.3397, lon: 25.1803 },
+  { iata: 'CHQ', name: 'Chania (Kreta)', lat: 35.5317, lon: 24.1497 },
   { iata: 'RHO', name: 'Rhodos', lat: 36.4054, lon: 28.0862 },
+  { iata: 'KGS', name: 'Kos', lat: 36.7933, lon: 27.0917 },
+  { iata: 'CFU', name: 'Korfu', lat: 39.6019, lon: 19.9117 },
+  { iata: 'ZTH', name: 'Zakynthos', lat: 37.7509, lon: 20.8843 },
+  { iata: 'SKG', name: 'Thessaloniki', lat: 40.5197, lon: 22.9709 },
+  { iata: 'ATH', name: 'Athen', lat: 37.9364, lon: 23.9445 },
+  { iata: 'JTR', name: 'Santorini', lat: 36.3992, lon: 25.4793 },
+  { iata: 'JMK', name: 'Mykonos', lat: 37.4351, lon: 25.3481 },
+  { iata: 'GPA', name: 'Araxos (Peloponnes)', lat: 38.1511, lon: 21.4256 },
+  { iata: 'KLX', name: 'Kalamata', lat: 37.0683, lon: 22.0255 },
+  { iata: 'VCE', name: 'Venedig', lat: 45.5053, lon: 12.3519 },
+  { iata: 'VRN', name: 'Verona (Gardasee)', lat: 45.3957, lon: 10.8885 },
+  { iata: 'BGY', name: 'Mailand-Bergamo', lat: 45.6739, lon: 9.7042 },
+  { iata: 'OLB', name: 'Olbia (Sardinien)', lat: 40.8987, lon: 9.5176 },
+  { iata: 'CAG', name: 'Cagliari (Sardinien)', lat: 39.2515, lon: 9.0543 },
+  { iata: 'CTA', name: 'Catania (Sizilien)', lat: 37.4668, lon: 15.0664 },
+  { iata: 'PMO', name: 'Palermo (Sizilien)', lat: 38.1760, lon: 13.0910 },
+  { iata: 'SUF', name: 'Lamezia Terme', lat: 38.9054, lon: 16.2423 },
+  { iata: 'BDS', name: 'Brindisi', lat: 40.6576, lon: 17.9470 },
+  { iata: 'NAP', name: 'Neapel', lat: 40.8860, lon: 14.2908 },
+  { iata: 'PUY', name: 'Pula (Istrien)', lat: 44.8935, lon: 13.9222 },
+  { iata: 'ZAD', name: 'Zadar', lat: 44.1083, lon: 15.3467 },
+  { iata: 'SPU', name: 'Split', lat: 43.5389, lon: 16.2980 },
+  { iata: 'DBV', name: 'Dubrovnik', lat: 42.5614, lon: 18.2682 },
+  { iata: 'BOJ', name: 'Burgas (Sonnenstrand)', lat: 42.5696, lon: 27.5152 },
+  { iata: 'VAR', name: 'Varna (Goldstrand)', lat: 43.2321, lon: 27.8251 },
+  { iata: 'DXB', name: 'Dubai', lat: 25.2532, lon: 55.3657 },
+  { iata: 'AUH', name: 'Abu Dhabi', lat: 24.4330, lon: 54.6511 },
+  { iata: 'MLE', name: 'Malé (Malediven)', lat: 4.1918, lon: 73.5291 },
+  { iata: 'HKT', name: 'Phuket', lat: 8.1132, lon: 98.3169 },
+  { iata: 'PUJ', name: 'Punta Cana', lat: 18.5674, lon: -68.3634 },
+  { iata: 'CUN', name: 'Cancún', lat: 21.0365, lon: -86.8771 },
   { iata: 'MUC', name: 'München', lat: 48.3538, lon: 11.7861 },
   { iata: 'FRA', name: 'Frankfurt', lat: 50.0379, lon: 8.5622 },
   { iata: 'STR', name: 'Stuttgart', lat: 48.6899, lon: 9.2219 },
+  { iata: 'NUE', name: 'Nürnberg', lat: 49.4987, lon: 11.0669 },
+  { iata: 'FMM', name: 'Memmingen', lat: 47.9888, lon: 10.2395 },
   { iata: 'ZRH', name: 'Zürich', lat: 47.4647, lon: 8.5492 },
   { iata: 'VIE', name: 'Wien', lat: 48.1103, lon: 16.5697 }
 ];
@@ -35,20 +93,25 @@ async function fetchJsonSafe(url, options = {}, timeoutMs = 6000) {
 }
 
 async function geocodeHotel(hotelName, location) {
-  const headers = { 'Accept-Language': 'de' };
-  for (const q of [`${hotelName}, ${location}`, location]) {
+  const headers = { 'Accept-Language': 'de', 'User-Agent': 'HotelSammlerPWA/1.0' };
+  // Ersetzt eventuelle Encoding-Unstimmigkeiten bei Umlauten/Sonderzeichen
+  const cleanLocation = location.normalize('NFC');
+  const cleanName = hotelName.normalize('NFC');
+  
+  for (const q of [`${cleanName}, ${cleanLocation}`, cleanLocation]) {
     try {
-      const data = await fetchJsonSafe(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`, { headers }, 6000);
-      if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), exact: q.includes(hotelName) };
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+      const data = await fetchJsonSafe(url, { headers }, 6000);
+      if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), exact: q.includes(cleanName) };
     } catch (err) {}
   }
   throw new Error('Ort konnte auf OpenStreetMap nicht gefunden werden.');
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000, toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const R = 6371000, toRod = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRod(lat2 - lat1), dLon = toRod(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRod(lat1)) * Math.cos(toRod(lat2)) * Math.sin(dLon / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
@@ -64,7 +127,8 @@ function findNearestAirport(lat, lon) {
 async function findNearestBeachMeters(lat, lon) {
   try {
     const d = 0.04;
-    const data = await fetchJsonSafe(`https://nominatim.openstreetmap.org/search?format=json&limit=5&bounded=1&viewbox=${lon - d},${lat + d},${lon + d},${lat - d}&q=beach`, { headers: { 'Accept-Language': 'de' } }, 5000);
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&bounded=1&viewbox=${lon - d},${lat + d},${lon + d},${lat - d}&q=beach`;
+    const data = await fetchJsonSafe(url, { headers: { 'Accept-Language': 'de' } }, 5000);
     if (data && data.length > 0) {
       let minMeters = Infinity;
       for (const item of data) {
@@ -79,21 +143,31 @@ async function findNearestBeachMeters(lat, lon) {
 
 async function fetchDriveMinutes(fromLat, fromLon, toLat, toLon) {
   try {
-    const data = await fetchJsonSafe(`https://router.project-osrm.org/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}?overview=false`, {}, 6000);
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}?overview=false`;
+    const data = await fetchJsonSafe(url, {}, 6000);
     if (data.routes && data.routes.length > 0) return Math.round(data.routes[0].duration / 60);
   } catch (err) {}
   return null;
 }
 
+// Hilfsfunktion: Konvertiert Komma in Punkt und parst als Zahl
+function parseRatingInput(val) {
+  if (!val) return null;
+  const normalizedStr = String(val).replace(',', '.');
+  const num = Number(normalizedStr);
+  return isNaN(num) || num <= 0 ? null : num;
+}
+
 function normalizeRating(val, minEffective, maxScale) {
-  const num = Number(val);
-  if (!val || isNaN(num) || num <= 0) return null;
-  return (Math.min(maxScale, Math.max(minEffective, num)) - minEffective) / (maxScale - minEffective);
+  const num = parseRatingInput(val);
+  if (num === null) return null;
+  const clamped = Math.min(maxScale, Math.max(minEffective, num));
+  return (clamped - minEffective) / (maxScale - minEffective);
 }
 
 function normalizeHolidayCheck(val) {
-  const num = Number(val);
-  if (!val || isNaN(num) || num <= 0) return null;
+  const num = parseRatingInput(val);
+  if (num === null) return null;
   if (num <= 6) return normalizeRating(num, 4.5, 6.0);
   return normalizeRating(num, 75, 100);
 }
@@ -260,10 +334,10 @@ if (formEl) {
         hotelName, location,
         price: document.getElementById('price').value.trim(),
         board: document.getElementById('board').value,
-        rateC24: document.getElementById('rateC24')?.value.trim() || '',
-        rateGoogle: document.getElementById('rateGoogle')?.value.trim() || '',
-        rateHC: document.getElementById('rateHC')?.value.trim() || '',
-        rateTA: document.getElementById('rateTA')?.value.trim() || '',
+        rateC24: document.getElementById('rateC24')?.value.trim().replace(',', '.') || '',
+        rateGoogle: document.getElementById('rateGoogle')?.value.trim().replace(',', '.') || '',
+        rateHC: document.getElementById('rateHC')?.value.trim().replace(',', '.') || '',
+        rateTA: document.getElementById('rateTA')?.value.trim().replace(',', '.') || '',
         rating: document.getElementById('rating').value,
         playground: document.getElementById('playground').value,
         beachType: document.getElementById('beachType').value,
@@ -295,13 +369,47 @@ if (exportBtn) {
   exportBtn.addEventListener('click', async () => {
     const ranked = computeRankedHotels(getHotels());
     if (ranked.length === 0) { alert('Keine Hotels vorhanden.'); return; }
-    const headers = ['Rang', 'PL_Score', 'Qualitaets_Punkte', 'Hotel', 'Ort', 'Preis_EUR', 'CHECK24_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Check24_Link'];
-    const rows = ranked.map((h, idx) => [idx + 1, h.plScore, h.totalQuality, h.hotelName, h.location, h.price, h.rateC24, h.rateGoogle, h.rateHC, h.rateTA, h.url].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
-    const file = new File(['\uFEFF' + [headers.join(';'), ...rows].join('\n')], 'ranking.csv', { type: 'text/csv;charset=utf-8;' });
+    
+    const headers = [
+      'Rang', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
+      'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
+      'CHECK24_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
+      'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Check24_Link'
+    ];
+
+    const rows = ranked.map((h, idx) => [
+      idx + 1,
+      String(h.plScore).replace('.', ','),
+      String(h.totalQuality).replace('.', ','),
+      h.normalizedPortal10 !== null ? String(h.normalizedPortal10).replace('.', ',') : '',
+      h.premiumBonusPct,
+      h.datum,
+      h.hotelName,
+      h.location,
+      h.price,
+      h.board,
+      String(h.rateC24 || '').replace('.', ','),
+      String(h.rateGoogle || '').replace('.', ','),
+      String(h.rateHC || '').replace('.', ','),
+      String(h.rateTA || '').replace('.', ','),
+      String(h.rating || '').replace('.', ','),
+      h.beachType,
+      h.beachShade,
+      h.beachMeters,
+      h.airportIata,
+      h.airportMinutes,
+      h.playground,
+      h.travelDate,
+      h.notes,
+      h.url
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
+
+    const file = new File(['\uFEFF' + [headers.join(';'), ...rows].join('\n')], 'check24_hotels_ranking.csv', { type: 'text/csv;charset=utf-8;' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ title: 'Ranking', files: [file] }); return; } catch (e) {}
+      try { await navigator.share({ title: 'Check24 Hotels Ranking', files: [file] }); return; } catch (e) {}
     }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = 'ranking.csv'; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = 'check24_hotels_ranking.csv'; a.click();
   });
 }
 
