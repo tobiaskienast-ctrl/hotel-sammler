@@ -128,20 +128,183 @@ function findNearestAirport(lat, lon) {
   return minDist <= 250000 ? nearest : null;
 }
 
+// Meeresabstand aus OSM-Vektorkacheln (OpenFreeMap, OpenMapTiles-Schema, Layer "water", class "ocean").
+const OCEAN_TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
+const EARTH_CIRCUMFERENCE_M = 40075016.68;
+let oceanTileUrlPromise = null;
+
+function getOceanTileUrl() {
+  if (!oceanTileUrlPromise) {
+    // Die Kachel-URL enthält einen Versionsstempel und wird daher aus dem TileJSON gelesen.
+    oceanTileUrlPromise = fetchJsonSafe(OCEAN_TILEJSON_URL, {}, 6000)
+      .then((tj) => tj.tiles[0])
+      .catch((err) => { oceanTileUrlPromise = null; throw err; });
+  }
+  return oceanTileUrlPromise;
+}
+
+// Minimaler Protobuf-Leser für Mapbox Vector Tiles
+function pbfReadVarint(buf, state) {
+  let result = 0, mul = 1, b;
+  do {
+    b = buf[state.pos++];
+    result += (b & 0x7f) * mul;
+    mul *= 128;
+  } while (b & 0x80);
+  return result;
+}
+
+function pbfReadFields(buf, start, end, onField) {
+  const state = { pos: start };
+  while (state.pos < end) {
+    const tag = pbfReadVarint(buf, state);
+    const field = Math.floor(tag / 8), wireType = tag & 7;
+    if (wireType === 0) onField(field, pbfReadVarint(buf, state));
+    else if (wireType === 2) {
+      const len = pbfReadVarint(buf, state);
+      onField(field, null, state.pos, state.pos + len);
+      state.pos += len;
+    } else if (wireType === 1) state.pos += 8;
+    else if (wireType === 5) state.pos += 4;
+    else throw new Error(`MVT: unbekannter Wire-Type ${wireType}`);
+  }
+}
+
+function pbfReadPacked(buf, start, end) {
+  const out = [], state = { pos: start };
+  while (state.pos < end) out.push(pbfReadVarint(buf, state));
+  return out;
+}
+
+function decodeMvtRings(cmds) {
+  const rings = [];
+  let x = 0, y = 0, ring = null;
+  for (let i = 0; i < cmds.length;) {
+    const id = cmds[i] & 7, count = cmds[i] >>> 3;
+    i++;
+    if (id === 7) {
+      if (ring && ring.length) ring.push(ring[0]);
+      continue;
+    }
+    for (let j = 0; j < count; j++) {
+      x += (cmds[i] >>> 1) ^ -(cmds[i] & 1);
+      y += (cmds[i + 1] >>> 1) ^ -(cmds[i + 1] & 1);
+      i += 2;
+      if (id === 1) { ring = [[x, y]]; rings.push(ring); }
+      else ring.push([x, y]);
+    }
+  }
+  return rings;
+}
+
+function decodeOceanTile(buf) {
+  const decoder = new TextDecoder();
+  const result = { extent: 4096, rings: [] };
+  pbfReadFields(buf, 0, buf.length, (layerField, _v, ls, le) => {
+    if (layerField !== 3) return;
+    let name = '', extent = 4096;
+    const keys = [], values = [], features = [];
+    pbfReadFields(buf, ls, le, (f, v, s, e) => {
+      if (f === 1) name = decoder.decode(buf.subarray(s, e));
+      else if (f === 2) features.push([s, e]);
+      else if (f === 3) keys.push(decoder.decode(buf.subarray(s, e)));
+      else if (f === 4) {
+        let str = null;
+        pbfReadFields(buf, s, e, (vf, _vv, vs, ve) => { if (vf === 1) str = decoder.decode(buf.subarray(vs, ve)); });
+        values.push(str);
+      } else if (f === 5) extent = v;
+    });
+    if (name !== 'water') return;
+    result.extent = extent;
+    for (const [fs, fe] of features) {
+      let tags = [], type = 0, geom = null;
+      pbfReadFields(buf, fs, fe, (f, v, s, e) => {
+        if (f === 2) tags = pbfReadPacked(buf, s, e);
+        else if (f === 3) type = v;
+        else if (f === 4) geom = pbfReadPacked(buf, s, e);
+      });
+      if (type !== 3 || !geom) continue;
+      let isOcean = false;
+      for (let t = 0; t < tags.length; t += 2) {
+        if (keys[tags[t]] === 'class' && values[tags[t + 1]] === 'ocean') isOcean = true;
+      }
+      if (isOcean) result.rings.push(...decodeMvtRings(geom));
+    }
+  });
+  return result;
+}
+
+async function fetchOceanTile(tileUrl, z, x, y) {
+  const url = tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (res.status === 204 || res.status === 404) return { extent: 4096, rings: [] };
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return decodeOceanTile(new Uint8Array(await res.arrayBuffer()));
+  } finally { clearTimeout(timer); }
+}
+
+function pointInRings(px, py, rings) {
+  let inside = false;
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Liefert Meter bis zur Küste oder null, wenn innerhalb des sicher abgedeckten Radius kein Meer liegt.
+async function oceanDistanceAtZoom(tileUrl, lat, lon, zoom) {
+  const n = 2 ** zoom;
+  const xf = ((lon + 180) / 360) * n;
+  const yf = ((1 - Math.asinh(Math.tan(toRad(lat))) / Math.PI) / 2) * n;
+  const cx = Math.floor(xf), cy = Math.floor(yf);
+
+  const coords = [];
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) coords.push([cx + dx, cy + dy]);
+  const tiles = await Promise.all(coords.map(async ([tx, ty]) => ({
+    tx, ty, ...(await fetchOceanTile(tileUrl, zoom, ((tx % n) + n) % n, ty))
+  })));
+
+  let best = Infinity; // in Kacheleinheiten
+  for (const { tx, ty, extent: e, rings } of tiles) {
+    const px = (xf - tx) * e, py = (yf - ty) * e;
+    if (tx === cx && ty === cy && pointInRings(px, py, rings)) return 0;
+    for (const ring of rings) {
+      for (let i = 1; i < ring.length; i++) {
+        const [ax0, ay0] = ring[i - 1], [bx0, by0] = ring[i];
+        // Künstliche Kanten aus dem Kachel-Clipping sind keine Küste
+        if ((ax0 <= 0 && bx0 <= 0) || (ax0 >= e && bx0 >= e) || (ay0 <= 0 && by0 <= 0) || (ay0 >= e && by0 >= e)) continue;
+        const ax = ax0 - px, ay = ay0 - py, ddx = bx0 - ax0, ddy = by0 - ay0;
+        const len2 = ddx * ddx + ddy * ddy;
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * ddx + ay * ddy) / len2));
+        const d = Math.hypot(ax + t * ddx, ay + t * ddy) / e;
+        if (d < best) best = d;
+      }
+    }
+  }
+
+  const reach = Math.min(xf - (cx - 1), cx + 2 - xf, yf - (cy - 1), cy + 2 - yf);
+  if (best > reach) return null;
+  const metersPerTile = (EARTH_CIRCUMFERENCE_M * Math.cos(toRad(lat))) / n;
+  return Math.round(best * metersPerTile);
+}
+
 async function findNearestBeachMeters(lat, lon) {
   try {
-    const d = 0.04;
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&bounded=1&viewbox=${lon - d},${lat + d},${lon + d},${lat - d}&q=beach`;
-    const data = await fetchJsonSafe(url, { headers: { 'Accept-Language': 'de' } }, 5000);
-    if (data && data.length > 0) {
-      let minMeters = Infinity;
-      for (const item of data) {
-        const m = haversineMeters(lat, lon, parseFloat(item.lat), parseFloat(item.lon));
-        if (m < minMeters) minMeters = m;
-      }
-      return minMeters;
+    const tileUrl = await getOceanTileUrl();
+    // Zoom 14: genau, ca. ±2 km Reichweite; Zoom 12: gröber, ca. ±7 km Reichweite
+    for (const zoom of [14, 12]) {
+      const meters = await oceanDistanceAtZoom(tileUrl, lat, lon, zoom);
+      if (meters !== null) return meters;
     }
-  } catch (err) {}
+  } catch (err) {
+    console.warn('Meeresabstand konnte nicht ermittelt werden:', err);
+  }
   return null;
 }
 
@@ -205,7 +368,7 @@ function computeRankedHotels(list) {
     else if (h.beachType === 'Sand/Kies') beachPoints += 2;
 
     const bm = Number(h.beachMeters);
-    if (!isNaN(bm) && bm > 0) {
+    if (h.beachMeters !== '' && h.beachMeters != null && !isNaN(bm) && bm >= 0) {
       if (bm <= 200) beachPoints += 4;
       else if (bm <= 500) beachPoints += 2;
     }
@@ -303,7 +466,7 @@ function renderList() {
             <button type="button" class="btn-del" onclick="deleteHotel(${h.origIndex})">✕</button>
           </div>
         </div>
-        <div class="meta">📍 ${h.location} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== null ? h.beachMeters + ' m' : '> 4 km'}</div>
+        <div class="meta">📍 ${h.location} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
         <div class="meta">${h.board} · ⭐ ${h.rating} ${portals ? `· 📊 ${portals}` : ''}</div>
         <div class="meta">🏖️ ${h.beachType || '?'} (${h.beachShade || '?'})</div>
       </div>`;
