@@ -183,7 +183,7 @@ function computeRankedHotels(list) {
   const scored = list.map((h, origIndex) => {
     const portalNorms = [
       normalizeRating(h.rateC24, 7.0, 10.0),
-      normalizeRating(h.rateTUI, 7.0, 10.0),
+      normalizeRating(h.rateTUI, 3.5, 5.0),
       normalizeRating(h.rateGoogle, 3.5, 5.0),
       normalizeHolidayCheck(h.rateHC),
       normalizeRating(h.rateTA, 3.5, 5.0)
