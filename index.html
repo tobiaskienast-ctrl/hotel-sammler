@@ -181,7 +181,7 @@
         document.getElementById('url').value = combinedUrl;
       }
 
-      // 1. Versuche TUI-Hotelnamen direkt aus der URL zu fischen (z.B. /pauschalreisen/.../TUI-MAGIC-LIFE-Jacaranda/...)
+      // 1. TUI-Namen aus URL fischen
       let extractedName = '';
       if (combinedUrl.includes('tui.com')) {
         const tuiMatch = combinedUrl.match(/\/angebote\/([^\/?#]+)/i) || combinedUrl.match(/\/hotels\/([^\/?#]+)/i);
@@ -195,24 +195,40 @@
         return;
       }
 
-      // 2. Ansonsten robuster Prosa-Filter mit Deduplizierung (verhindert doppelten Text)
+      // 2. Prosa-Bereinigung für Check24 etc.
       let candidate = (rawTitle + ' ' + rawText)
         .replace(/https?:\/\/[^\s]+/gi, ' ')
-        .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI)[\s\S]*?/gi, ' ')
+        .replace(/(Schau dir dieses Hotel|Folgendes Hotel habe ich bei|gefunden|Viel Spaß beim Buchen|CHECK24|TUI|Angebot)[\s\S]*?/gi, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 
-      if (candidate.length > 3) {
-        // Wort-Deduplizierung, falls Check24 den Namen doppelt sendet
+      if (candidate.length > 2) {
+        // Aggressiver Duplikat-Killer (falls Check24 den Namen doppelt sendet)
         const words = candidate.split(' ');
-        const halfLen = Math.floor(words.length / 2);
-        if (halfLen > 2) {
-          const firstHalf = words.slice(0, halfLen).join(' ');
-          const secondHalf = words.slice(halfLen, halfLen * 2).join(' ');
-          if (firstHalf.toLowerCase() === secondHalf.toLowerCase()) {
-            candidate = words.slice(0, halfLen).join(' ');
+        if (words.length >= 4) {
+          const mid = Math.floor(words.length / 2);
+          const part1 = words.slice(0, mid).join(' ').toLowerCase();
+          const part2 = words.slice(mid).join(' ').toLowerCase();
+          if (part1 === part2 || part1.includes(part2) || part2.includes(part1)) {
+            candidate = words.slice(0, mid).join(' ');
           }
         }
+        // Falls exakt doppelte Wörter hintereinander vorkommen (z.B. "Hotel A Hotel A")
+        const uniqueWords = [];
+        for (let i = 0; i < words.length; i++) {
+          if (i === 0 || words[i].toLowerCase() !== words[i-1].toLowerCase()) {
+            uniqueWords.push(words[i]);
+          }
+        }
+        // Nochmal prüfen ob die erste Hälfte der zweiten gleicht
+        const finalWords = uniqueWords;
+        const half = Math.floor(finalWords.length / 2);
+        if (half >= 2 && finalWords.slice(0, half).join(' ').toLowerCase() === finalWords.slice(half, half*2).join(' ').toLowerCase()) {
+          candidate = finalWords.slice(0, half).join(' ');
+        } else {
+          candidate = finalWords.join(' ');
+        }
+
         document.getElementById('hotelName').value = candidate;
       }
     })();
@@ -240,6 +256,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=17"></script>
+  <script src="./app.js?v=18"></script>
 </body>
 </html>
