@@ -190,8 +190,30 @@ function getPlaceChooser() {
   return box;
 }
 
+// Liest Koordinaten aus Freitext ("36.77, 31.39") oder einem langen Google-Maps-Link.
+function parseCoordinates(text) {
+  const s = String(text || '').trim();
+  const patterns = [
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/, // genauer Ortspunkt in Google-Maps-Links
+    /[?&](?:q|query|ll|destination)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i,
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/, // Kartenmitte
+    /^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (!m) continue;
+    const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) return { lat, lon };
+  }
+  return null;
+}
+
+function googleMapsSearchUrl(hotelName, location) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hotelName} ${location}`.trim())}`;
+}
+
 // Zeigt eine Auswahl an und liefert den gewählten Kandidaten bzw. null bei Abbruch.
-function choosePlace(message, candidates, center, locationLabel) {
+function choosePlace(message, candidates, center, locationLabel, hotelName = '') {
   return new Promise((resolve) => {
     const box = getPlaceChooser();
     box.replaceChildren();
@@ -222,6 +244,39 @@ function choosePlace(message, candidates, center, locationLabel) {
       const dist = c.distKm !== null ? `${c.distKm.toFixed(1).replace('.', ',')} km von ${locationLabel}` : '';
       addButton(`${c.isHotel ? '🏨' : '📌'} ${c.name}`, [c.label, dist].filter(Boolean).join(' · '), 'btn-choice', c);
     }
+    // Manuelle Koordinaten, z. B. aus Google Maps
+    const manual = document.createElement('div');
+    manual.className = 'chooser-manual';
+    const hint = document.createElement('div');
+    hint.className = 'chooser-sub';
+    hint.textContent = 'Hotel nicht dabei? In Google Maps lange auf das Hotel drücken, die Koordinaten oben kopieren und hier einfügen.';
+    const mapsBtn = document.createElement('button');
+    mapsBtn.type = 'button';
+    mapsBtn.className = 'btn-search';
+    mapsBtn.textContent = '🗺️ In Google Maps suchen';
+    mapsBtn.addEventListener('click', () => window.open(googleMapsSearchUrl(hotelName, locationLabel), '_blank'));
+    const coordInput = document.createElement('input');
+    coordInput.type = 'text';
+    coordInput.placeholder = 'z. B. 36.7712, 31.3894 oder Google-Maps-Link';
+    coordInput.style.marginTop = '8px';
+    const coordError = document.createElement('div');
+    coordError.className = 'chooser-sub';
+    coordError.style.color = 'var(--danger)';
+    const coordBtn = document.createElement('button');
+    coordBtn.type = 'button';
+    coordBtn.className = 'btn-choice';
+    coordBtn.textContent = '📍 Diese Koordinaten verwenden';
+    coordBtn.addEventListener('click', () => {
+      const coords = parseCoordinates(coordInput.value);
+      if (!coords) {
+        coordError.textContent = 'Keine Koordinaten erkannt. Format: Breite, Länge (z. B. 36.7712, 31.3894). Kurzlinks (maps.app.goo.gl) gehen nicht.';
+        return;
+      }
+      finish({ ...coords, name: 'Manuelle Koordinaten', label: '', isManual: true });
+    });
+    manual.append(hint, mapsBtn, coordInput, coordError, coordBtn);
+    box.append(manual);
+
     if (center) {
       addButton(`📍 Ortszentrum „${locationLabel}" verwenden`, 'Meeres- & Flughafenabstand werden dann ungenau', 'btn-choice btn-choice-warn', { ...center, isCenter: true });
     }
@@ -229,12 +284,15 @@ function choosePlace(message, candidates, center, locationLabel) {
   });
 }
 
-async function geocodeHotel(hotelName, location, onProgress = () => {}) {
+async function geocodeHotel(hotelName, location, onProgress = () => {}, alwaysConfirm = false) {
   const cleanLocation = location.normalize('NFC');
   const cleanName = hotelName.normalize('NFC');
-  const asResult = (c) => ({ lat: c.lat, lon: c.lon, exact: !c.isCenter, matchName: c.isCenter ? '' : [c.name, c.label].filter(Boolean).join(', ') });
+  const asResult = (c) => ({
+    lat: c.lat, lon: c.lon, exact: !c.isCenter, manual: !!c.isManual,
+    matchName: c.isCenter || c.isManual ? '' : [c.name, c.label].filter(Boolean).join(', ')
+  });
   const pick = async (message, candidates, center) => {
-    const chosen = await choosePlace(message, candidates, center, cleanLocation);
+    const chosen = await choosePlace(message, candidates, center, cleanLocation, cleanName);
     if (!chosen) throw new Error('Speichern abgebrochen – Hotelname oder Ort anpassen.');
     return asResult(chosen);
   };
@@ -246,9 +304,9 @@ async function geocodeHotel(hotelName, location, onProgress = () => {}) {
     // Ohne Zielort-Koordinaten bleibt nur die kombinierte Freitextsuche.
     onProgress('Suche Hotel...');
     const found = dedupeCandidates((await nominatimSearch({ q: `${cleanName}, ${cleanLocation}`, limit: '8' })).map((r) => toPlaceCandidate(r, null)));
-    if (found.length === 1) return asResult(found[0]);
-    if (found.length > 1) return pick(`Mehrere Treffer für „${cleanName}" – welches Hotel ist gemeint?`, found, null);
-    throw new Error('Ort konnte auf OpenStreetMap nicht gefunden werden.');
+    if (found.length === 1 && !alwaysConfirm) return asResult(found[0]);
+    if (found.length >= 1) return pick(`Treffer für „${cleanName}" – welches Hotel ist gemeint?`, found, null);
+    return pick(`„${cleanLocation}" wurde auf OpenStreetMap nicht gefunden.`, [], null);
   }
 
   const center = { lat: parseFloat(locPlace.lat), lon: parseFloat(locPlace.lon) };
@@ -260,8 +318,8 @@ async function geocodeHotel(hotelName, location, onProgress = () => {}) {
 
   onProgress(`Suche Hotel in der Umgebung von ${cleanLocation}...`);
   const found = await searchRegion(cleanName);
-  if (found.length === 1) return asResult(found[0]);
-  if (found.length > 1) return pick(`Mehrere Treffer für „${cleanName}" um ${cleanLocation} – welches Hotel ist gemeint?`, found, center);
+  if (found.length === 1 && !alwaysConfirm) return asResult(found[0]);
+  if (found.length >= 1) return pick(`Treffer für „${cleanName}" um ${cleanLocation} – welches Hotel ist gemeint?`, found, center);
 
   // Unscharfe Treffer (Tippfehler, andere Schreibweise) immer bestätigen lassen.
   onProgress('Suche ähnliche Schreibweisen...');
@@ -580,6 +638,14 @@ function getHotels() { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[
 function saveHotels(list) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); renderList(); }
 function deleteHotel(origIndex) { const list = getHotels(); list.splice(origIndex, 1); saveHotels(list); }
 
+// Beim Bearbeiten kann der Standort (z. B. falscher OSM-Treffer) neu bestimmt werden.
+function setRelocateVisible(visible) {
+  const wrap = document.getElementById('relocateWrap');
+  const box = document.getElementById('relocate');
+  if (wrap) wrap.hidden = !visible;
+  if (box) box.checked = false;
+}
+
 function editHotel(origIndex) {
   const h = getHotels()[origIndex];
   if (!h) return;
@@ -601,6 +667,7 @@ function editHotel(origIndex) {
   document.getElementById('beachShade').value = h.beachShade || 'Keine/Unbekannt';
   document.getElementById('travelDate').value = h.travelDate || '';
   document.getElementById('notes').value = h.notes || '';
+  setRelocateVisible(true);
   const btn = document.getElementById('saveBtn'); if (btn) btn.textContent = '💾 Änderungen & Ranking aktualisieren';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -620,13 +687,15 @@ function renderList() {
     container.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;">Noch keine Hotels gespeichert.</p>';
     return;
   }
-  container.innerHTML = ranked.map((h, rankIdx) => {
+  container.innerHTML = ranked.map((raw, rankIdx) => {
+    // Alle Textfelder escapen: Hotelname & Co. können aus geteilten Seitentiteln stammen.
+    const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
     const medal = rankIdx === 0 ? '🏆 #1 SIEGER' : rankIdx === 1 ? '🥈 #2' : rankIdx === 2 ? '🥉 #3' : `#${rankIdx + 1}`;
     const hcDisplay = h.rateHC ? (Number(h.rateHC) <= 6 ? `HC: ${h.rateHC}/6` : `HC: ${h.rateHC}%`) : null;
     const portals = [
       h.rateC24 ? `C24: ${h.rateC24}/10` : null,
-      h.rateTUI ? `TUI: ${h.rateTUI}/10` : null,
+      h.rateTUI ? `TUI: ${h.rateTUI}/5` : null,
       h.rateGoogle ? `G: ${h.rateGoogle}/5` : null,
       hcDisplay,
       h.rateTA ? `TA: ${h.rateTA}/5` : null
@@ -644,7 +713,7 @@ function renderList() {
             <button type="button" class="btn-del" onclick="deleteHotel(${h.origIndex})">✕</button>
           </div>
         </div>
-        <div class="meta">📍 ${h.location}${h.exactMatch === 'Ortszentrum' ? ' (⚠️ nur Ortszentrum)' : h.osmMatch ? ` (OSM: ${escapeHtml(h.osmMatch)})` : ''} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
+        <div class="meta">📍 ${h.location}${h.exactMatch === 'Ortszentrum' ? ' (⚠️ nur Ortszentrum)' : h.exactMatch === 'Manuell' ? ' (📍 manuelle Koordinaten)' : h.osmMatch ? ` (OSM: ${h.osmMatch})` : ''} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
         <div class="meta">${h.board} · ⭐ ${h.rating} ${portals ? `· 📊 ${portals}` : ''}</div>
         <div class="meta">🏖️ ${h.beachType || '?'} (${h.beachShade || '?'})</div>
       </div>`;
@@ -667,13 +736,14 @@ if (formEl) {
     try {
       let airportIata = existing?.airportIata || '', airportMinutes = existing?.airportMinutes ?? '', beachMeters = existing?.beachMeters ?? '', exactMatch = existing?.exactMatch || '', osmMatch = existing?.osmMatch || '';
 
-      if (!existing || existing.hotelName !== hotelName || existing.location !== location) {
+      const relocateEl = document.getElementById('relocate');
+      if (!existing || existing.hotelName !== hotelName || existing.location !== location || relocateEl?.checked) {
         if (status) status.textContent = '1/3 Suche Koordinaten...';
-        const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/3 ${msg}`; });
+        const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/3 ${msg}`; }, !!relocateEl?.checked);
         if (status) status.textContent = '2/3 Suche Strand & Flughafen...';
         const airport = findNearestAirport(coords.lat, coords.lon);
         beachMeters = (await findNearestBeachMeters(coords.lat, coords.lon)) ?? '';
-        exactMatch = coords.exact ? 'Exakt' : 'Ortszentrum';
+        exactMatch = coords.manual ? 'Manuell' : coords.exact ? 'Exakt' : 'Ortszentrum';
         osmMatch = coords.matchName;
 
         if (airport) {
@@ -712,6 +782,7 @@ if (formEl) {
       if (status) status.textContent = '✅ Gespeichert & Ranking berechnet!';
       e.target.reset();
       if (editIndexEl) editIndexEl.value = '-1';
+      setRelocateVisible(false);
       if (btn) btn.textContent = 'OSM prüfen & im Ranking speichern';
     } catch (err) {
       if (status) status.textContent = `❌ Fehler: ${err.message}`;
@@ -730,9 +801,9 @@ if (exportBtn) {
     const headers = [
       'Rang', 'Portal_Quelle', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
       'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
-      'CHECK24_10', 'TUI_10', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
+      'CHECK24_10', 'TUI_5', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
-      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link'
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -761,7 +832,9 @@ if (exportBtn) {
       h.playground,
       h.travelDate,
       h.notes,
-      h.url
+      h.url,
+      h.exactMatch,
+      h.osmMatch
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -776,6 +849,79 @@ if (exportBtn) {
     a.click();
   });
 }
+
+// CSV-Import (Format des eigenen Exports): stellt eine Liste nach Datenverlust oder auf einem neuen Gerät wieder her.
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else field += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ';') { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += ch;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((v) => v.trim() !== ''));
+}
+
+const CSV_FIELD_MAP = {
+  Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Verpflegung: 'board',
+  CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
+  TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
+  Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
+  Spielplatz: 'playground', Reisezeitraum: 'travelDate', Notiz: 'notes', Hotel_Link: 'url',
+  Standort_Genauigkeit: 'exactMatch', OSM_Treffer: 'osmMatch'
+};
+const DECIMAL_FIELDS = ['rateC24', 'rateTUI', 'rateGoogle', 'rateHC', 'rateTA', 'rating'];
+
+function importCsvText(text) {
+  const [header, ...rows] = parseCsv(text);
+  if (!header || !header.includes('Hotel')) throw new Error('Keine Hotel-Sammler-CSV erkannt.');
+  const list = getHotels();
+  const key = (h) => `${h.hotelName}|${h.location}|${h.url}`.toLowerCase();
+  const known = new Set(list.map(key));
+  let added = 0, skipped = 0;
+  for (const r of rows) {
+    const entry = {};
+    header.forEach((col, i) => {
+      const field = CSV_FIELD_MAP[col.trim()];
+      if (!field) return;
+      let v = (r[i] ?? '').trim();
+      if (DECIMAL_FIELDS.includes(field)) v = v.replace(',', '.');
+      entry[field] = v;
+    });
+    if (!entry.hotelName) continue;
+    if (known.has(key(entry))) { skipped++; continue; }
+    known.add(key(entry));
+    list.push(entry);
+    added++;
+  }
+  saveHotels(list);
+  return { added, skipped };
+}
+
+const importInput = document.getElementById('importFile');
+document.getElementById('importBtn')?.addEventListener('click', () => importInput?.click());
+importInput?.addEventListener('change', async () => {
+  const file = importInput.files?.[0];
+  if (!file) return;
+  try {
+    const { added, skipped } = importCsvText(await file.text());
+    alert(`${added} Hotel(s) importiert${skipped ? `, ${skipped} bereits vorhanden` : ''}.`);
+  } catch (err) {
+    alert(`Import fehlgeschlagen: ${err.message}`);
+  } finally {
+    importInput.value = '';
+  }
+});
 
 if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', renderList); }
 else { renderList(); }
