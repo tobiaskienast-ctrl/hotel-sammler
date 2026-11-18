@@ -41,6 +41,9 @@
     .meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; line-height: 1.4; }
     .attribution { color: var(--muted); font-size: 0.72rem; text-align: center; line-height: 1.5; margin: 4px 0 16px; }
     .attribution a { color: var(--muted); }
+    .chooser-manual { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #475569; }
+    .check-label { display: flex; align-items: center; gap: 8px; color: var(--text); margin-top: 12px; }
+    .check-label input { width: auto; }
     .section-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #38bdf8; margin: 14px 0 2px; border-top: 1px solid #334155; padding-top: 10px; }
   </style>
 </head>
@@ -113,7 +116,7 @@
     </div>
 
     <label for="rateHC">HolidayCheck (% Empf. oder Note 1–6)</label>
-    <input type="number" id="rateHC" step="1" min="0" max="100" placeholder="92" />
+    <input type="text" inputmode="decimal" id="rateHC" placeholder="92 oder 5,4" />
 
     <div class="section-title">Eigene Eindrücke & Strand</div>
     <div class="row">
@@ -166,6 +169,10 @@
     <label for="notes">Notiz (Pools, Rutschen, Transfer...)</label>
     <textarea id="notes" rows="2" placeholder="Kurze Notiz..."></textarea>
 
+    <label id="relocateWrap" class="check-label" hidden>
+      <input type="checkbox" id="relocate" /> Standort neu suchen (z. B. falscher OSM-Treffer)
+    </label>
+
     <button type="submit" class="btn-primary" id="saveBtn">OSM prüfen & im Ranking speichern</button>
     <div class="status" id="status"></div>
     <div class="chooser" id="placeChooser" hidden></div>
@@ -173,6 +180,8 @@
 
   <div class="card">
     <button type="button" class="btn-export" id="exportBtn">📤 Ranking-CSV an OneDrive senden</button>
+    <button type="button" class="btn-clear" id="importBtn">📥 Ranking-CSV importieren</button>
+    <input type="file" id="importFile" accept=".csv,text/csv" hidden />
     <button type="button" class="btn-clear" id="clearAllBtn">🗑️ Gespeicherte Liste komplett leeren</button>
     <div id="hotelList" style="margin-top: 14px;"></div>
   </div>
@@ -251,6 +260,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=23"></script>
+  <script src="./app.js?v=24"></script>
 </body>
 </html>
