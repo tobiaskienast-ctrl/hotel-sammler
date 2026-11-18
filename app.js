@@ -190,21 +190,34 @@ function getPlaceChooser() {
   return box;
 }
 
-// Liest Koordinaten aus Freitext ("36.77, 31.39") oder einem langen Google-Maps-Link.
+// Liest Koordinaten aus Freitext oder einem langen Google-Maps-Link. Erkennt u. a.:
+// "36.7712, 31.3894" · "36,7712, 31,3894" (deutsches Komma) · "36,7712 31,3894" · 36°46'16.3"N 31°23'21.8"E
 function parseCoordinates(text) {
   const s = String(text || '').trim();
-  const patterns = [
+  const valid = (lat, lon) => (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null);
+
+  const linkPatterns = [
     /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/, // genauer Ortspunkt in Google-Maps-Links
     /[?&](?:q|query|ll|destination)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i,
-    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/, // Kartenmitte
-    /^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/ // Kartenmitte
   ];
-  for (const re of patterns) {
+  for (const re of linkPatterns) {
     const m = s.match(re);
-    if (!m) continue;
-    const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
-    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) return { lat, lon };
+    const c = m && valid(parseFloat(m[1]), parseFloat(m[2]));
+    if (c) return c;
   }
+  if (/https?:\/\//i.test(s)) return null;
+
+  // Grad, Minuten, Sekunden
+  const dms = s.match(/(\d+)°\s*(\d+)['′]\s*([\d.,]+)["″]?\s*([NS])[\s,;]*(\d+)°\s*(\d+)['′]\s*([\d.,]+)["″]?\s*([EOW])/i);
+  if (dms) {
+    const deg = (d, m, sec, hemi) => (Number(d) + Number(m) / 60 + parseFloat(sec.replace(',', '.')) / 3600) * (/[SW]/i.test(hemi) ? -1 : 1);
+    return valid(deg(dms[1], dms[2], dms[3], dms[4]), deg(dms[5], dms[6], dms[7], dms[8]));
+  }
+
+  // Dezimalgrad mit Punkt oder Komma: genau zwei Zahlen im Text
+  const nums = s.match(/-?\d+(?:[.,]\d+)?/g);
+  if (nums && nums.length === 2) return valid(...nums.map((n) => parseFloat(n.replace(',', '.'))));
   return null;
 }
 
@@ -257,19 +270,29 @@ function choosePlace(message, candidates, center, locationLabel, hotelName = '')
     mapsBtn.addEventListener('click', () => window.open(googleMapsSearchUrl(hotelName, locationLabel), '_blank'));
     const coordInput = document.createElement('input');
     coordInput.type = 'text';
-    coordInput.placeholder = 'z. B. 36.7712, 31.3894 oder Google-Maps-Link';
+    coordInput.placeholder = 'z. B. 36,7712, 31,3894 oder Google-Maps-Link';
+    coordInput.autocomplete = 'off';
     coordInput.style.marginTop = '8px';
     const coordError = document.createElement('div');
     coordError.className = 'chooser-sub';
-    coordError.style.color = 'var(--danger)';
     const coordBtn = document.createElement('button');
     coordBtn.type = 'button';
     coordBtn.className = 'btn-choice';
     coordBtn.textContent = '📍 Diese Koordinaten verwenden';
+    const fmtCoord = (n) => n.toFixed(5).replace('.', ',');
+    // Sofortige Rückmeldung beim Einfügen/Tippen, was erkannt wurde
+    coordInput.addEventListener('input', () => {
+      const coords = parseCoordinates(coordInput.value);
+      coordError.style.color = coords ? 'var(--ok)' : 'var(--muted)';
+      coordError.textContent = !coordInput.value.trim() ? ''
+        : coords ? `✓ Erkannt: Breite ${fmtCoord(coords.lat)}, Länge ${fmtCoord(coords.lon)}`
+        : 'Noch nicht erkannt …';
+    });
     coordBtn.addEventListener('click', () => {
       const coords = parseCoordinates(coordInput.value);
       if (!coords) {
-        coordError.textContent = 'Keine Koordinaten erkannt. Format: Breite, Länge (z. B. 36.7712, 31.3894). Kurzlinks (maps.app.goo.gl) gehen nicht.';
+        coordError.style.color = 'var(--danger)';
+        coordError.textContent = 'Keine Koordinaten erkannt. Bitte Breite und Länge einfügen (z. B. 36,7712, 31,3894). Kurzlinks (maps.app.goo.gl) gehen nicht.';
         return;
       }
       finish({ ...coords, name: 'Manuelle Koordinaten', label: '', isManual: true });
@@ -570,10 +593,20 @@ function normalizeHolidayCheck(val) {
   return normalizeRating(num, 75, 100);
 }
 
+// Wertung: Qualität (max. ~73 Punkte) plus Preisanpassung relativ zum mittleren Preis der Liste.
+const PRICE_POINTS_PER_LOG = 25;      // 10 % Preisunterschied ≈ 2,5 Punkte
+const PORTAL_BONUS_PER_10PCT = 0.5;
+const PORTAL_BONUS_MAX = 3;
+const TIE_POINTS = 1.5;
+
+const fmtPoints = (n) => `${n > 0 ? '+' : ''}${String(n).replace('.', ',')}`;
+
 function computeRankedHotels(list) {
   if (!list || list.length === 0) return [];
-  const validPrices = list.map((h) => Number(h.price)).filter((p) => p > 0);
-  const avgPrice = validPrices.length > 0 ? validPrices.reduce((a, b) => a + b, 0) / validPrices.length : 0;
+  const validPrices = list.map((h) => Number(h.price)).filter((p) => p > 0).sort((a, b) => a - b);
+  const mid = Math.floor(validPrices.length / 2);
+  const medianPrice = validPrices.length === 0 ? 0
+    : validPrices.length % 2 ? validPrices[mid] : (validPrices[mid - 1] + validPrices[mid]) / 2;
 
   const scored = list.map((h, origIndex) => {
     const portalNorms = [
@@ -605,19 +638,18 @@ function computeRankedHotels(list) {
       else if (bm <= 500) beachPoints += 2;
     }
 
-    const rawQuality = portalPoints + ownPoints + beachPoints;
     const price = Number(h.price);
-    let premiumBonusFactor = 1.0;
-    if (price > 0 && avgPrice > 0 && price > avgPrice && rawQuality >= 45) {
-      const priceRatio = Math.min(1.5, price / avgPrice);
-      const qualityStrength = Math.min(1, (rawQuality - 45) / 25);
-      premiumBonusFactor = 1 + 0.15 * ((priceRatio - 1) / 0.5) * qualityStrength;
-    }
+    const priceRatio = price > 0 && medianPrice > 0 ? price / medianPrice : 1;
 
-    const totalQuality = Math.round(rawQuality * premiumBonusFactor * 10) / 10;
-    let plScore = totalQuality;
-    if (price > 0) plScore = totalQuality / Math.pow(price / 1000, 0.65);
-    plScore = Math.round(plScore * 10) / 10;
+    // Teure Hotels werden auf Portalen strenger bewertet (höhere Erwartungen):
+    // +0,5 Punkte je 10 % über dem mittleren Listenpreis, höchstens +3 – nur wenn Portalnoten vorhanden sind.
+    const portalBonus = portalNorms.length > 0 ? Math.min(PORTAL_BONUS_MAX, Math.max(0, PORTAL_BONUS_PER_10PCT * 10 * (priceRatio - 1))) : 0;
+    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus) * 10) / 10;
+
+    // Preis relativ zum mittleren Listenpreis: 10 % teurer ≈ −2,5 Punkte, 10 % günstiger ≈ +2,5 Punkte.
+    // Durch den Logarithmus zählt derselbe prozentuale Aufpreis immer gleich viel.
+    const priceAdj = Math.round(-PRICE_POINTS_PER_LOG * Math.log(priceRatio) * 10) / 10 || 0;
+    const plScore = Math.round((totalQuality + priceAdj) * 10) / 10;
 
     let portalSource = 'Direkt';
     if (h.url) {
@@ -627,10 +659,12 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, normalizedPortal10, totalQuality, premiumBonusPct: Math.round((premiumBonusFactor - 1) * 100), plScore, portalSource };
+    return { ...h, origIndex, normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
+  // Hotels mit weniger als 1,5 Punkten Abstand zum Vorgänger gelten als praktisch gleichauf.
+  scored.forEach((h, i) => { h.tiedWithPrev = i > 0 && scored[i - 1].plScore - h.plScore < TIE_POINTS; });
   return scored;
 }
 
@@ -706,7 +740,7 @@ function renderList() {
         <div class="item-head">
           <div>
             <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}) [${h.portalSource}]</span><br/>
-            <span class="score-pill">P/L-Score: ${h.plScore} Pkt. · Quali: ${h.totalQuality}${h.normalizedPortal10 !== null ? ` · Portale: ${h.normalizedPortal10}/10` : ''}${h.premiumBonusPct > 0 ? ` (+${h.premiumBonusPct}% Bonus)` : ''}</span>
+            <span class="score-pill">Score: ${String(h.plScore).replace('.', ',')} · Quali: ${String(h.totalQuality).replace('.', ',')}${h.portalBonus > 0 ? ` (inkl. ${fmtPoints(h.portalBonus)} Portal-Bonus)` : ''} · Preis: ${fmtPoints(h.priceAdj)}${h.normalizedPortal10 !== null ? ` · Portale: ${String(h.normalizedPortal10).replace('.', ',')}/10` : ''}</span>${h.tiedWithPrev ? '<br/><span class="tie-pill">≈ praktisch gleichauf mit dem Hotel darüber</span>' : ''}
           </div>
           <div style="display:flex;gap:4px;">
             <button type="button" class="btn-small" onclick="editHotel(${h.origIndex})">✏️</button>
@@ -799,7 +833,7 @@ if (exportBtn) {
     if (ranked.length === 0) { alert('Keine Hotels vorhanden.'); return; }
     
     const headers = [
-      'Rang', 'Portal_Quelle', 'PL_Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Premium_Bonus_Pct',
+      'Rang', 'Portal_Quelle', 'Score', 'Qualitaets_Punkte', 'Portal_Schnitt_10', 'Portal_Bonus_Pkt',
       'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
       'CHECK24_10', 'TUI_5', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
@@ -812,7 +846,7 @@ if (exportBtn) {
       String(h.plScore ?? '').replace('.', ','),
       String(h.totalQuality ?? '').replace('.', ','),
       h.normalizedPortal10 !== null ? String(h.normalizedPortal10).replace('.', ',') : '',
-      h.premiumBonusPct,
+      String(h.portalBonus).replace('.', ','),
       h.datum,
       h.hotelName,
       h.location,
