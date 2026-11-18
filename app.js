@@ -601,9 +601,23 @@ const TIE_POINTS = 1.5;
 
 const fmtPoints = (n) => `${n > 0 ? '+' : ''}${String(n).replace('.', ',')}`;
 
+const DEAL_THRESHOLD = 0.15; // günstigster Preis mehr als 15 % unter dem zweiten → Schnäppchen-Hinweis
+
+// Mit zwei Veranstalterpreisen zählt der Mittelwert, damit ein einzelnes Lockangebot nur halb wirkt.
+function effectivePrice(h) {
+  const prices = [Number(h.price), Number(h.price2)].filter((p) => p > 0);
+  return prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+}
+
+function isDeal(h) {
+  const p1 = Number(h.price), p2 = Number(h.price2);
+  if (!(p1 > 0 && p2 > 0)) return false;
+  return Math.min(p1, p2) < Math.max(p1, p2) * (1 - DEAL_THRESHOLD);
+}
+
 function computeRankedHotels(list) {
   if (!list || list.length === 0) return [];
-  const validPrices = list.map((h) => Number(h.price)).filter((p) => p > 0).sort((a, b) => a - b);
+  const validPrices = list.map(effectivePrice).filter((p) => p > 0).sort((a, b) => a - b);
   const mid = Math.floor(validPrices.length / 2);
   const medianPrice = validPrices.length === 0 ? 0
     : validPrices.length % 2 ? validPrices[mid] : (validPrices[mid - 1] + validPrices[mid]) / 2;
@@ -638,7 +652,7 @@ function computeRankedHotels(list) {
       else if (bm <= 500) beachPoints += 2;
     }
 
-    const price = Number(h.price);
+    const price = effectivePrice(h);
     const priceRatio = price > 0 && medianPrice > 0 ? price / medianPrice : 1;
 
     // Teure Hotels werden auf Portalen strenger bewertet (höhere Erwartungen):
@@ -659,7 +673,7 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, priceAdj, plScore, portalSource };
+    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -689,6 +703,7 @@ function editHotel(origIndex) {
   document.getElementById('hotelName').value = h.hotelName || '';
   document.getElementById('location').value = h.location || '';
   document.getElementById('price').value = h.price || '';
+  const p2 = document.getElementById('price2'); if (p2) p2.value = h.price2 || '';
   document.getElementById('board').value = h.board || 'All Inclusive';
   const c24 = document.getElementById('rateC24'); if (c24) c24.value = h.rateC24 || '';
   const tui = document.getElementById('rateTUI'); if (tui) tui.value = h.rateTUI || '';
@@ -739,8 +754,8 @@ function renderList() {
       <div class="item ${isWinner ? 'winner' : ''}">
         <div class="item-head">
           <div>
-            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}) [${h.portalSource}]</span><br/>
-            <span class="score-pill">Score: ${String(h.plScore).replace('.', ',')} · Quali: ${String(h.totalQuality).replace('.', ',')}${h.portalBonus > 0 ? ` (inkl. ${fmtPoints(h.portalBonus)} Portal-Bonus)` : ''} · Preis: ${fmtPoints(h.priceAdj)}${h.normalizedPortal10 !== null ? ` · Portale: ${String(h.normalizedPortal10).replace('.', ',')}/10` : ''}</span>${h.tiedWithPrev ? '<br/><span class="tie-pill">≈ praktisch gleichauf mit dem Hotel darüber</span>' : ''}
+            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}${h.price2 ? ` / ${h.price2} € → Ø ${h.effPrice} €` : ''}) [${h.portalSource}]</span><br/>
+            <span class="score-pill">Score: ${String(h.plScore).replace('.', ',')} · Quali: ${String(h.totalQuality).replace('.', ',')}${h.portalBonus > 0 ? ` (inkl. ${fmtPoints(h.portalBonus)} Portal-Bonus)` : ''} · Preis: ${fmtPoints(h.priceAdj)}${h.normalizedPortal10 !== null ? ` · Portale: ${String(h.normalizedPortal10).replace('.', ',')}/10` : ''}</span>${h.isDeal ? '<br/><span class="deal-pill">⚡ Schnäppchen – Bedingungen prüfen (Flugzeiten, Transfer, Storno)</span>' : ''}${h.tiedWithPrev ? '<br/><span class="tie-pill">≈ praktisch gleichauf mit dem Hotel darüber</span>' : ''}
           </div>
           <div style="display:flex;gap:4px;">
             <button type="button" class="btn-small" onclick="editHotel(${h.origIndex})">✏️</button>
@@ -793,6 +808,7 @@ if (formEl) {
         datum: existing?.datum || new Date().toLocaleDateString('de-DE'),
         hotelName, location,
         price: document.getElementById('price').value.trim(),
+        price2: document.getElementById('price2')?.value.trim() || '',
         board: document.getElementById('board').value,
         rateC24: document.getElementById('rateC24')?.value.trim().replace(',', '.') || '',
         rateTUI: document.getElementById('rateTUI')?.value.trim().replace(',', '.') || '',
@@ -837,7 +853,7 @@ if (exportBtn) {
       'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
       'CHECK24_10', 'TUI_5', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
-      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer'
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -868,7 +884,8 @@ if (exportBtn) {
       h.notes,
       h.url,
       h.exactMatch,
-      h.osmMatch
+      h.osmMatch,
+      h.price2
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -907,7 +924,7 @@ function parseCsv(text) {
 }
 
 const CSV_FIELD_MAP = {
-  Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Verpflegung: 'board',
+  Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
