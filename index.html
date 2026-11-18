@@ -38,6 +38,7 @@
     .item-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; font-weight: 600; }
     .score-pill { display: inline-block; background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; font-size: 0.75rem; padding: 2px 7px; border-radius: 999px; margin-top: 4px; }
     .tie-pill { display: inline-block; font-size: 0.72rem; color: var(--muted); border: 1px dashed #475569; padding: 1px 7px; border-radius: 999px; margin-top: 4px; font-weight: 400; }
+    .deal-pill { display: inline-block; font-size: 0.72rem; color: var(--gold); border: 1px solid rgba(245, 158, 11, 0.5); padding: 1px 7px; border-radius: 999px; margin-top: 4px; font-weight: 400; }
     .winner .score-pill { border-color: var(--gold); color: var(--gold); }
     .meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; line-height: 1.4; }
     .attribution { color: var(--muted); font-size: 0.72rem; text-align: center; line-height: 1.5; margin: 4px 0 16px; }
@@ -73,15 +74,18 @@
         <input type="number" id="price" placeholder="2450" />
       </div>
       <div>
-        <label for="board">Verpflegung</label>
-        <select id="board">
-          <option value="All Inclusive">All Inclusive</option>
-          <option value="Halbpension">Halbpension</option>
-          <option value="Frühstück">Frühstück</option>
-          <option value="Ohne Verpflegung">Ohne Verpflegung</option>
-        </select>
+        <label for="price2">Preis 2. Veranstalter (€)</label>
+        <input type="number" id="price2" placeholder="optional" />
       </div>
     </div>
+
+    <label for="board">Verpflegung</label>
+    <select id="board">
+      <option value="All Inclusive">All Inclusive</option>
+      <option value="Halbpension">Halbpension</option>
+      <option value="Frühstück">Frühstück</option>
+      <option value="Ohne Verpflegung">Ohne Verpflegung</option>
+    </select>
 
     <div class="section-title">Portal-Bewertungen & Schnellsuche</div>
     <div class="row" style="grid-template-columns: 1fr 1fr; margin-bottom: 4px;">
@@ -261,6 +265,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=25"></script>
+  <script src="./app.js?v=26"></script>
 </body>
 </html>
