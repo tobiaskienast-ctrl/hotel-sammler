@@ -505,16 +505,69 @@ function decodeOceanTile(buf) {
   return result;
 }
 
-async function fetchOceanTile(tileUrl, z, x, y) {
+// Kacheln werden kurz zwischengespeichert: Strand- und Umgebungsprüfung nutzen dieselben Zoom-14-Kacheln.
+const tileBufferCache = new Map();
+const TILE_CACHE_MAX = 40;
+function fetchTileBuffer(tileUrl, z, x, y) {
   const url = tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (res.status === 204 || res.status === 404) return { extent: 4096, rings: [] };
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return decodeOceanTile(new Uint8Array(await res.arrayBuffer()));
-  } finally { clearTimeout(timer); }
+  if (!tileBufferCache.has(url)) {
+    const p = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        if (res.status === 204 || res.status === 404) return null;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return new Uint8Array(await res.arrayBuffer());
+      } finally { clearTimeout(timer); }
+    })();
+    p.catch(() => tileBufferCache.delete(url));
+    tileBufferCache.set(url, p);
+    if (tileBufferCache.size > TILE_CACHE_MAX) tileBufferCache.delete(tileBufferCache.keys().next().value);
+  }
+  return tileBufferCache.get(url);
+}
+
+async function fetchOceanTile(tileUrl, z, x, y) {
+  const buf = await fetchTileBuffer(tileUrl, z, x, y);
+  return buf ? decodeOceanTile(buf) : { extent: 4096, rings: [] };
+}
+
+// Liest ausgewählte Layer einer Vektorkachel: Merkmale mit Typ (1 Punkt, 2 Linie, 3 Fläche), Tags und Geometrie.
+function decodeTileFeatures(buf, wantedLayers) {
+  const decoder = new TextDecoder();
+  const out = {};
+  pbfReadFields(buf, 0, buf.length, (layerField, _v, ls, le) => {
+    if (layerField !== 3) return;
+    let name = '', extent = 4096;
+    const keys = [], values = [], features = [];
+    pbfReadFields(buf, ls, le, (f, v, s, e) => {
+      if (f === 1) name = decoder.decode(buf.subarray(s, e));
+      else if (f === 2) features.push([s, e]);
+      else if (f === 3) keys.push(decoder.decode(buf.subarray(s, e)));
+      else if (f === 4) {
+        let str = null;
+        pbfReadFields(buf, s, e, (vf, _vv, vs, ve) => { if (vf === 1) str = decoder.decode(buf.subarray(vs, ve)); });
+        values.push(str);
+      } else if (f === 5) extent = v;
+    });
+    if (!wantedLayers.includes(name)) return;
+    const layer = { extent, features: [] };
+    for (const [fs, fe] of features) {
+      let tagIdx = [], type = 0, geom = null;
+      pbfReadFields(buf, fs, fe, (f, v, s, e) => {
+        if (f === 2) tagIdx = pbfReadPacked(buf, s, e);
+        else if (f === 3) type = v;
+        else if (f === 4) geom = pbfReadPacked(buf, s, e);
+      });
+      if (!geom) continue;
+      const tags = {};
+      for (let t = 0; t < tagIdx.length; t += 2) tags[keys[tagIdx[t]]] = values[tagIdx[t + 1]];
+      layer.features.push({ type, tags, geom: decodeMvtRings(geom) });
+    }
+    out[name] = layer;
+  });
+  return out;
 }
 
 function pointInRings(px, py, rings) {
@@ -595,81 +648,79 @@ async function fetchDriveMinutes(fromLat, fromLon, toLat, toLon) {
   return null;
 }
 
-// ---------- Umgebung (OpenStreetMap über Overpass API) ----------
-// Mehrere öffentliche Overpass-Server: der Hauptserver ist zeitweise überlastet.
-const OVERPASS_URLS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter'
-];
-// Discos und Baustellen bewusst nicht: in OSM zu unzuverlässig (veraltet, hoteleigene Kellerdiscos).
-const ROAD_RADIUS_M = 300, SHOP_RADIUS_M = 1500, AIRPORT_RADIUS_M = 8000;
-
-// Abstand Punkt–Strecke in Metern (lokale Projektion, für kurze Distanzen genau genug)
-function pointSegmentMeters(lat, lon, a, b) {
-  const kx = 111320 * Math.cos(toRad(lat)), ky = 110540;
-  const ax = (a.lon - lon) * kx, ay = (a.lat - lat) * ky, bx = (b.lon - lon) * kx, by = (b.lat - lat) * ky;
-  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
-  const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
-  return Math.hypot(ax + t * dx, ay + t * dy);
-}
-
-function elementMeters(lat, lon, el) {
-  if (el.geometry?.length) {
-    let best = Infinity;
-    for (let i = 0; i < el.geometry.length; i++) {
-      const a = el.geometry[i], b = el.geometry[i + 1] || a;
-      best = Math.min(best, pointSegmentMeters(lat, lon, a, b));
-    }
-    return best;
-  }
-  const p = el.center || el;
-  return p.lat != null ? haversineMeters(lat, lon, p.lat, p.lon) : Infinity;
-}
+// ---------- Umgebung (aus denselben OpenFreeMap-Kacheln wie der Meeresabstand) ----------
+// Früher Overpass API: deren öffentliche Server sind oft überlastet und lehnen Anfragen ab.
+const ROAD_RADIUS_M = 300, SHOP_RADIUS_M = 1500, AIRPORT_NOISE_RADIUS_M = 8000;
+const ROAD_CLASSES = { motorway: 'Autobahn', trunk: 'Schnellstraße', primary: 'Hauptstraße' };
+const SHOP_SUBCLASSES = ['supermarket', 'convenience', 'mall', 'department_store'];
 
 // Sucht Einkaufsmöglichkeiten, große Straßen und Flughäfen rund um das Hotel.
 async function fetchSurroundings(lat, lon) {
-  const at = `${lat},${lon}`;
-  const query = `[out:json][timeout:25];
-(
-  nwr["shop"~"^(supermarket|convenience|mall|department_store)$"](around:${SHOP_RADIUS_M},${at});
-  nwr["aeroway"="aerodrome"]["iata"](around:${AIRPORT_RADIUS_M},${at});
-);
-out tags center;
-way["highway"~"^(motorway|trunk|primary|motorway_link|trunk_link|primary_link)$"](around:${ROAD_RADIUS_M},${at});
-out tags geom;`;
-  let data = null, lastErr = null;
-  for (const url of OVERPASS_URLS) {
-    try {
-      data = await fetchJsonSafe(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `data=${encodeURIComponent(query)}`
-      }, 20000);
-      if (Array.isArray(data?.elements)) break;
-      data = null;
-    } catch (err) { lastErr = err; }
-  }
-  if (!data) throw lastErr || new Error('Overpass nicht erreichbar');
+  const tileUrl = await getOceanTileUrl();
+  const zoom = 14, n = 2 ** zoom;
+  const xf = ((lon + 180) / 360) * n;
+  const yf = ((1 - Math.asinh(Math.tan(toRad(lat))) / Math.PI) / 2) * n;
+  const cx = Math.floor(xf), cy = Math.floor(yf);
+  const metersPerTile = (EARTH_CIRCUMFERENCE_M * Math.cos(toRad(lat))) / n;
 
-  const nearest = (filter) => {
-    let best = null;
-    for (const el of data.elements || []) {
-      if (!filter(el.tags || {})) continue;
-      const m = elementMeters(lat, lon, el);
-      if (!best || m < best.m) best = { m, tags: el.tags || {} };
+  const coords = [];
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) coords.push([cx + dx, cy + dy]);
+  const tiles = new Array(coords.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => { // OpenFreeMap-ToS: max. 4 parallel
+    while (next < coords.length) {
+      const i = next++;
+      const [tx, ty] = coords[i];
+      const buf = await fetchTileBuffer(tileUrl, zoom, ((tx % n) + n) % n, ty);
+      tiles[i] = { tx, ty, layers: buf ? decodeTileFeatures(buf, ['transportation', 'poi']) : {} };
     }
-    return best;
-  };
-  const shop = nearest((t) => !!t.shop);
-  const road = nearest((t) => !!t.highway);
-  const air = nearest((t) => t.aeroway === 'aerodrome');
-  const r = (x) => (x ? Math.round(x.m) : '');
+  }));
+
+  let road = null, shop = null;
+  for (const { tx, ty, layers } of tiles) {
+    for (const [layerName, layer] of Object.entries(layers)) {
+      const unit = metersPerTile / layer.extent;
+      const px = (xf - tx) * layer.extent, py = (yf - ty) * layer.extent;
+      for (const f of layer.features) {
+        if (layerName === 'transportation') {
+          if (f.type !== 2 || !ROAD_CLASSES[f.tags.class]) continue;
+          for (const line of f.geom) {
+            for (let i = 1; i < line.length; i++) {
+              const [ax0, ay0] = line[i - 1], [bx0, by0] = line[i];
+              const ax = ax0 - px, ay = ay0 - py, ddx = bx0 - ax0, ddy = by0 - ay0;
+              const len2 = ddx * ddx + ddy * ddy;
+              const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * ddx + ay * ddy) / len2));
+              const m = Math.hypot(ax + t * ddx, ay + t * ddy) * unit;
+              if (!road || m < road.m) road = { m, name: ROAD_CLASSES[f.tags.class] };
+            }
+          }
+        } else if (layerName === 'poi') {
+          if (!SHOP_SUBCLASSES.includes(f.tags.subclass)) continue;
+          for (const ring of f.geom) {
+            for (const [x, y] of ring) {
+              const m = Math.hypot(x - px, y - py) * unit;
+              if (!shop || m < shop.m) shop = { m, name: f.tags.name || f.tags['name:de'] || f.tags['name:en'] || 'Geschäft' };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Fluglärm: Abstand zum nächsten Flughafen der eigenen Liste (keine Netzabfrage nötig)
+  let air = null;
+  for (const ap of AIRPORTS) {
+    const m = haversineMeters(lat, lon, ap.lat, ap.lon);
+    if (m <= AIRPORT_NOISE_RADIUS_M && (!air || m < air.m)) air = { m, name: ap.iata };
+  }
+
+  const nearRoad = road && road.m <= ROAD_RADIUS_M ? road : null;
+  const nearShop = shop && shop.m <= SHOP_RADIUS_M ? shop : null;
   return {
     envChecked: '1',
-    shopM: r(shop), shopName: shop ? (shop.tags.name || shop.tags.shop) : '',
-    roadM: r(road), roadName: road ? (road.tags.ref || road.tags.name || 'Hauptstraße') : '',
-    airKm: air ? Math.round(air.m / 100) / 10 : '', airName: air ? (air.tags.iata || air.tags.name || '') : ''
+    shopM: nearShop ? Math.round(nearShop.m) : '', shopName: nearShop ? nearShop.name : '',
+    roadM: nearRoad ? Math.round(nearRoad.m) : '', roadName: nearRoad ? nearRoad.name : '',
+    airKm: air ? Math.round(air.m / 100) / 10 : '', airName: air ? air.name : ''
   };
 }
 
