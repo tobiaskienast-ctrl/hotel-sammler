@@ -581,7 +581,8 @@ const OVERPASS_URLS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter'
 ];
-const ROAD_RADIUS_M = 300, SHOP_RADIUS_M = 1500, CLUB_RADIUS_M = 500, BUILD_RADIUS_M = 300, AIRPORT_RADIUS_M = 8000;
+// Discos und Baustellen bewusst nicht: in OSM zu unzuverlässig (veraltet, hoteleigene Kellerdiscos).
+const ROAD_RADIUS_M = 300, SHOP_RADIUS_M = 1500, AIRPORT_RADIUS_M = 8000;
 
 // Abstand Punkt–Strecke in Metern (lokale Projektion, für kurze Distanzen genau genug)
 function pointSegmentMeters(lat, lon, a, b) {
@@ -605,14 +606,12 @@ function elementMeters(lat, lon, el) {
   return p.lat != null ? haversineMeters(lat, lon, p.lat, p.lon) : Infinity;
 }
 
-// Sucht Einkaufsmöglichkeiten, große Straßen und Lärmquellen rund um das Hotel.
+// Sucht Einkaufsmöglichkeiten, große Straßen und Flughäfen rund um das Hotel.
 async function fetchSurroundings(lat, lon) {
   const at = `${lat},${lon}`;
   const query = `[out:json][timeout:25];
 (
   nwr["shop"~"^(supermarket|convenience|mall|department_store)$"](around:${SHOP_RADIUS_M},${at});
-  nwr["amenity"="nightclub"](around:${CLUB_RADIUS_M},${at});
-  nwr["landuse"="construction"](around:${BUILD_RADIUS_M},${at});
   nwr["aeroway"="aerodrome"]["iata"](around:${AIRPORT_RADIUS_M},${at});
 );
 out tags center;
@@ -643,29 +642,26 @@ out tags geom;`;
   };
   const shop = nearest((t) => !!t.shop);
   const road = nearest((t) => !!t.highway);
-  const club = nearest((t) => t.amenity === 'nightclub');
-  const build = nearest((t) => t.landuse === 'construction');
   const air = nearest((t) => t.aeroway === 'aerodrome');
   const r = (x) => (x ? Math.round(x.m) : '');
   return {
     envChecked: '1',
     shopM: r(shop), shopName: shop ? (shop.tags.name || shop.tags.shop) : '',
     roadM: r(road), roadName: road ? (road.tags.ref || road.tags.name || 'Hauptstraße') : '',
-    clubM: r(club), buildM: r(build),
     airKm: air ? Math.round(air.m / 100) / 10 : '', airName: air ? (air.tags.iata || air.tags.name || '') : ''
   };
 }
 
-const ENV_FIELDS = ['envChecked', 'shopM', 'shopName', 'roadM', 'roadName', 'clubM', 'buildM', 'airKm', 'airName'];
+const ENV_FIELDS = ['envChecked', 'shopM', 'shopName', 'roadM', 'roadName', 'airKm', 'airName'];
 
 const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
 
-// Punkte für die Umgebung: Einkauf in der Nähe hilft, Straßen- und Lärmquellen kosten Punkte.
+// Punkte für die Umgebung: Einkauf in der Nähe hilft, große Straßen und Flughafennähe kosten Punkte.
 function surroundingsPoints(h) {
   if (h.envChecked !== '1') return { points: 0, notes: [] };
   let points = 0;
   const notes = [];
-  const shopM = num(h.shopM), roadM = num(h.roadM), clubM = num(h.clubM), buildM = num(h.buildM), airKm = num(h.airKm);
+  const shopM = num(h.shopM), roadM = num(h.roadM), airKm = num(h.airKm);
   if (shopM !== null && shopM <= 500) { points += 2; notes.push(`🛒 Einkauf ${shopM} m`); }
   else if (shopM !== null && shopM <= 1000) { points += 1; notes.push(`🛒 Einkauf ${shopM} m`); }
   else notes.push('🛒 kein Einkauf < 1 km');
@@ -674,8 +670,6 @@ function surroundingsPoints(h) {
     points += p;
     notes.push(`🚗 ${h.roadName} ${roadM} m`);
   }
-  if (clubM !== null) { points += clubM <= 300 ? -2 : -1; notes.push(`🎶 Disco ${clubM} m`); }
-  if (buildM !== null) { points -= 1; notes.push(`🏗️ Baustelle ${buildM} m (OSM, evtl. veraltet)`); }
   if (airKm !== null) { points += airKm <= 4 ? -3 : -1; notes.push(`🛬 Flughafen ${h.airName} ${String(airKm).replace('.', ',')} km – Fluglärm möglich`); }
   return { points: Math.max(-6, Math.min(2, points)), notes };
 }
@@ -936,7 +930,7 @@ if (formEl) {
       // Umgebung prüfen: nach neuer Standortsuche oder wenn sie noch fehlt (Koordinaten bekannt)
       let envWarning = '';
       if (lat !== '' && lon !== '' && (locationChanged || env.envChecked !== '1')) {
-        if (status) status.textContent = '4/4 Prüfe Umgebung (Einkauf, Straßen, Lärm)...';
+        if (status) status.textContent = '4/4 Prüfe Umgebung (Einkauf, Straßen, Flughafen)...';
         try {
           env = await fetchSurroundings(Number(lat), Number(lon));
         } catch {
@@ -997,7 +991,7 @@ if (exportBtn) {
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
       'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR',
       'Breite', 'Laenge', 'Umgebung_geprueft', 'Einkauf_m', 'Einkauf_Name', 'Hauptstrasse_m', 'Hauptstrasse_Name',
-      'Disco_m', 'Baustelle_m', 'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt'
+      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -1031,7 +1025,7 @@ if (exportBtn) {
       h.osmMatch,
       h.price2,
       h.lat, h.lon, h.envChecked, h.shopM, h.shopName, h.roadM, h.roadName,
-      h.clubM, h.buildM, String(h.airKm ?? '').replace('.', ','), h.airName,
+      String(h.airKm ?? '').replace('.', ','), h.airName,
       String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ',')
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
@@ -1072,8 +1066,8 @@ function parseCsv(text) {
 
 const CSV_FIELD_MAP = {
   Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Breite: 'lat', Laenge: 'lon', Umgebung_geprueft: 'envChecked',
-  Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName', Disco_m: 'clubM',
-  Baustelle_m: 'buildM', Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Verpflegung: 'board',
+  Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName',
+  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
