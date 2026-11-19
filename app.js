@@ -809,6 +809,20 @@ function beachDistancePoints(meters) {
   return Math.round(Math.max(-10, p) * 10) / 10;
 }
 
+// Verpflegung relativ zu All Inclusive. Grobe Umrechnung: 2,5 Punkte ≈ 10 % Reisepreis.
+// Halbpension: Mittagessen und Getränke kommen mit Kindern schnell auf ~25–30 % des Reisepreises.
+const BOARD_POINTS = {
+  'Ultra All Inclusive': 2,
+  'All Inclusive': 0,
+  'Vollpension': -4,
+  'Halbpension': -7,
+  'Frühstück': -10,
+  'Ohne Verpflegung': -12
+};
+function boardPoints(board) {
+  return BOARD_POINTS[board] ?? 0;
+}
+
 function computeRankedHotels(list) {
   if (!list || list.length === 0) return [];
   const validPrices = list.map(effectivePrice).filter((p) => p > 0).sort((a, b) => a - b);
@@ -851,7 +865,8 @@ function computeRankedHotels(list) {
     const portalBonus = portalNorms.length > 0 ? Math.min(PORTAL_BONUS_MAX, Math.max(0, PORTAL_BONUS_PER_10PCT * 10 * (priceRatio - 1))) : 0;
     const env = surroundingsPoints(h);
     const transfer = transferMalus(h.airportMinutes);
-    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus + env.points + transfer) * 10) / 10;
+    const board = boardPoints(h.board);
+    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus + env.points + transfer + board) * 10) / 10;
 
     // Preis relativ zum mittleren Listenpreis: 10 % teurer ≈ −2,5 Punkte, 10 % günstiger ≈ +2,5 Punkte.
     // Durch den Logarithmus zählt derselbe prozentuale Aufpreis immer gleich viel.
@@ -866,7 +881,7 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
+    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, boardPoints: board, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -935,6 +950,7 @@ function renderList() {
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
     const envParts = [];
+    if (h.boardPoints !== 0) envParts.push(`🍽️ ${h.board}: ${fmtPoints(h.boardPoints)}`);
     if (h.beachDistPoints < 0) envParts.push(`🏖️ Strand ${h.beachMeters} m entfernt: ${fmtPoints(h.beachDistPoints)}`);
     if (h.transferPoints < 0) envParts.push(`🚐 Transfer ${h.airportMinutes} Min.: ${fmtPoints(h.transferPoints)}`);
     if (h.envChecked === '1') envParts.push(`🏘️ Umgebung ${fmtPoints(h.envPoints)}: ${raw.envNotes.map(escapeHtml).join(' · ')}`);
