@@ -231,6 +231,8 @@ function choosePlace(message, candidates, center, locationLabel, hotelName = '')
     const box = getPlaceChooser();
     box.replaceChildren();
     box.hidden = false;
+    // Auch beim Ergänzen aus der Liste heraus sichtbar machen
+    setTimeout(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
     const finish = (value) => { box.hidden = true; box.replaceChildren(); resolve(value); };
 
     const msg = document.createElement('div');
@@ -572,6 +574,114 @@ async function fetchDriveMinutes(fromLat, fromLon, toLat, toLon) {
   return null;
 }
 
+// ---------- Umgebung (OpenStreetMap über Overpass API) ----------
+// Mehrere öffentliche Overpass-Server: der Hauptserver ist zeitweise überlastet.
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter'
+];
+// Discos und Baustellen bewusst nicht: in OSM zu unzuverlässig (veraltet, hoteleigene Kellerdiscos).
+const ROAD_RADIUS_M = 300, SHOP_RADIUS_M = 1500, AIRPORT_RADIUS_M = 8000;
+
+// Abstand Punkt–Strecke in Metern (lokale Projektion, für kurze Distanzen genau genug)
+function pointSegmentMeters(lat, lon, a, b) {
+  const kx = 111320 * Math.cos(toRad(lat)), ky = 110540;
+  const ax = (a.lon - lon) * kx, ay = (a.lat - lat) * ky, bx = (b.lon - lon) * kx, by = (b.lat - lat) * ky;
+  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+
+function elementMeters(lat, lon, el) {
+  if (el.geometry?.length) {
+    let best = Infinity;
+    for (let i = 0; i < el.geometry.length; i++) {
+      const a = el.geometry[i], b = el.geometry[i + 1] || a;
+      best = Math.min(best, pointSegmentMeters(lat, lon, a, b));
+    }
+    return best;
+  }
+  const p = el.center || el;
+  return p.lat != null ? haversineMeters(lat, lon, p.lat, p.lon) : Infinity;
+}
+
+// Sucht Einkaufsmöglichkeiten, große Straßen und Flughäfen rund um das Hotel.
+async function fetchSurroundings(lat, lon) {
+  const at = `${lat},${lon}`;
+  const query = `[out:json][timeout:25];
+(
+  nwr["shop"~"^(supermarket|convenience|mall|department_store)$"](around:${SHOP_RADIUS_M},${at});
+  nwr["aeroway"="aerodrome"]["iata"](around:${AIRPORT_RADIUS_M},${at});
+);
+out tags center;
+way["highway"~"^(motorway|trunk|primary|motorway_link|trunk_link|primary_link)$"](around:${ROAD_RADIUS_M},${at});
+out tags geom;`;
+  let data = null, lastErr = null;
+  for (const url of OVERPASS_URLS) {
+    try {
+      data = await fetchJsonSafe(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(query)}`
+      }, 20000);
+      if (Array.isArray(data?.elements)) break;
+      data = null;
+    } catch (err) { lastErr = err; }
+  }
+  if (!data) throw lastErr || new Error('Overpass nicht erreichbar');
+
+  const nearest = (filter) => {
+    let best = null;
+    for (const el of data.elements || []) {
+      if (!filter(el.tags || {})) continue;
+      const m = elementMeters(lat, lon, el);
+      if (!best || m < best.m) best = { m, tags: el.tags || {} };
+    }
+    return best;
+  };
+  const shop = nearest((t) => !!t.shop);
+  const road = nearest((t) => !!t.highway);
+  const air = nearest((t) => t.aeroway === 'aerodrome');
+  const r = (x) => (x ? Math.round(x.m) : '');
+  return {
+    envChecked: '1',
+    shopM: r(shop), shopName: shop ? (shop.tags.name || shop.tags.shop) : '',
+    roadM: r(road), roadName: road ? (road.tags.ref || road.tags.name || 'Hauptstraße') : '',
+    airKm: air ? Math.round(air.m / 100) / 10 : '', airName: air ? (air.tags.iata || air.tags.name || '') : ''
+  };
+}
+
+const ENV_FIELDS = ['envChecked', 'shopM', 'shopName', 'roadM', 'roadName', 'airKm', 'airName'];
+
+const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+
+// Punkte für die Umgebung: Einkauf in der Nähe hilft, große Straßen und Flughafennähe kosten Punkte.
+function surroundingsPoints(h) {
+  if (h.envChecked !== '1') return { points: 0, notes: [] };
+  let points = 0;
+  const notes = [];
+  const shopM = num(h.shopM), roadM = num(h.roadM), airKm = num(h.airKm);
+  if (shopM !== null && shopM <= 500) { points += 2; notes.push(`🛒 Einkauf ${shopM} m`); }
+  else if (shopM !== null && shopM <= 1000) { points += 1; notes.push(`🛒 Einkauf ${shopM} m`); }
+  else notes.push('🛒 kein Einkauf < 1 km');
+  if (roadM !== null) {
+    const p = roadM <= 100 ? -3 : roadM <= 200 ? -2 : -1;
+    points += p;
+    notes.push(`🚗 ${h.roadName} ${roadM} m`);
+  }
+  if (airKm !== null) { points += airKm <= 4 ? -3 : -1; notes.push(`🛬 Flughafen ${h.airName} ${String(airKm).replace('.', ',')} km – Fluglärm möglich`); }
+  return { points: Math.max(-6, Math.min(2, points)), notes };
+}
+
+// Transfer mit kleinen Kindern: bis 45 Min. kein Abzug, danach −1 Punkt je 10 Min., höchstens −6.
+const TRANSFER_FREE_MIN = 45, TRANSFER_POINTS_PER_10MIN = 1, TRANSFER_MAX_MALUS = 6;
+function transferMalus(minutes) {
+  const m = num(minutes);
+  if (m === null || m <= TRANSFER_FREE_MIN) return 0;
+  return -Math.min(TRANSFER_MAX_MALUS, Math.round(((m - TRANSFER_FREE_MIN) / 10) * TRANSFER_POINTS_PER_10MIN * 10) / 10);
+}
+
 function parseRatingInput(val) {
   if (!val) return null;
   const normalizedStr = String(val).replace(',', '.');
@@ -658,7 +768,9 @@ function computeRankedHotels(list) {
     // Teure Hotels werden auf Portalen strenger bewertet (höhere Erwartungen):
     // +0,5 Punkte je 10 % über dem mittleren Listenpreis, höchstens +3 – nur wenn Portalnoten vorhanden sind.
     const portalBonus = portalNorms.length > 0 ? Math.min(PORTAL_BONUS_MAX, Math.max(0, PORTAL_BONUS_PER_10PCT * 10 * (priceRatio - 1))) : 0;
-    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus) * 10) / 10;
+    const env = surroundingsPoints(h);
+    const transfer = transferMalus(h.airportMinutes);
+    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus + env.points + transfer) * 10) / 10;
 
     // Preis relativ zum mittleren Listenpreis: 10 % teurer ≈ −2,5 Punkte, 10 % günstiger ≈ +2,5 Punkte.
     // Durch den Logarithmus zählt derselbe prozentuale Aufpreis immer gleich viel.
@@ -673,7 +785,7 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, priceAdj, plScore, portalSource };
+    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -740,6 +852,11 @@ function renderList() {
     // Alle Textfelder escapen: Hotelname & Co. können aus geteilten Seitentiteln stammen.
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
+    const envParts = [];
+    if (h.transferPoints < 0) envParts.push(`🚐 Transfer ${h.airportMinutes} Min.: ${fmtPoints(h.transferPoints)}`);
+    if (h.envChecked === '1') envParts.push(`🏘️ Umgebung ${fmtPoints(h.envPoints)}: ${raw.envNotes.map(escapeHtml).join(' · ')}`);
+    else envParts.push('🏘️ Umgebung nicht geprüft (Hotel bearbeiten → „Standort neu suchen“)');
+    const envLine = envParts.join('<br/>');
     const medal = rankIdx === 0 ? '🏆 #1 SIEGER' : rankIdx === 1 ? '🥈 #2' : rankIdx === 2 ? '🥉 #3' : `#${rankIdx + 1}`;
     const hcDisplay = h.rateHC ? (Number(h.rateHC) <= 6 ? `HC: ${h.rateHC}/6` : `HC: ${h.rateHC}%`) : null;
     const portals = [
@@ -765,6 +882,7 @@ function renderList() {
         <div class="meta">📍 ${h.location}${h.exactMatch === 'Ortszentrum' ? ' (⚠️ nur Ortszentrum)' : h.exactMatch === 'Manuell' ? ' (📍 manuelle Koordinaten)' : h.osmMatch ? ` (OSM: ${h.osmMatch})` : ''} · ✈️ ${h.airportIata || '?'} (${h.airportMinutes || '?'} Min.) · 🏖️ ${h.beachMeters !== '' && h.beachMeters != null ? h.beachMeters + ' m zum Meer' : 'kein Meer gefunden'}</div>
         <div class="meta">${h.board} · ⭐ ${h.rating} ${portals ? `· 📊 ${portals}` : ''}</div>
         <div class="meta">🏖️ ${h.beachType || '?'} (${h.beachShade || '?'})</div>
+        <div class="meta">${envLine}</div>
       </div>`;
   }).join('');
 }
@@ -784,23 +902,40 @@ if (formEl) {
 
     try {
       let airportIata = existing?.airportIata || '', airportMinutes = existing?.airportMinutes ?? '', beachMeters = existing?.beachMeters ?? '', exactMatch = existing?.exactMatch || '', osmMatch = existing?.osmMatch || '';
+      let lat = existing?.lat ?? '', lon = existing?.lon ?? '';
+      let env = existing?.envChecked === '1' ? Object.fromEntries(ENV_FIELDS.map((k) => [k, existing[k] ?? ''])) : {};
+      let locationChanged = false;
 
       const relocateEl = document.getElementById('relocate');
       if (!existing || existing.hotelName !== hotelName || existing.location !== location || relocateEl?.checked) {
-        if (status) status.textContent = '1/3 Suche Koordinaten...';
-        const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/3 ${msg}`; }, !!relocateEl?.checked);
-        if (status) status.textContent = '2/3 Suche Strand & Flughafen...';
+        if (status) status.textContent = '1/4 Suche Koordinaten...';
+        const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/4 ${msg}`; }, !!relocateEl?.checked);
+        lat = Math.round(coords.lat * 1e6) / 1e6; lon = Math.round(coords.lon * 1e6) / 1e6;
+        locationChanged = true;
+        if (status) status.textContent = '2/4 Suche Strand & Flughafen...';
         const airport = findNearestAirport(coords.lat, coords.lon);
         beachMeters = (await findNearestBeachMeters(coords.lat, coords.lon)) ?? '';
         exactMatch = coords.manual ? 'Manuell' : coords.exact ? 'Exakt' : 'Ortszentrum';
         osmMatch = coords.matchName;
 
         if (airport) {
-          if (status) status.textContent = `3/3 Berechne Fahrtdauer nach ${airport.iata}...`;
+          if (status) status.textContent = `3/4 Berechne Fahrtdauer nach ${airport.iata}...`;
           let mins = await fetchDriveMinutes(coords.lat, coords.lon, airport.lat, airport.lon);
           if (mins === null) mins = Math.max(5, Math.round((airport.airMeters / 1000) * 1.1));
           airportIata = `${airport.name} (${airport.iata})`;
           airportMinutes = mins;
+        }
+      }
+
+      // Umgebung prüfen: nach neuer Standortsuche oder wenn sie noch fehlt (Koordinaten bekannt)
+      let envWarning = '';
+      if (lat !== '' && lon !== '' && (locationChanged || env.envChecked !== '1')) {
+        if (status) status.textContent = '4/4 Prüfe Umgebung (Einkauf, Straßen, Flughafen)...';
+        try {
+          env = await fetchSurroundings(Number(lat), Number(lon));
+        } catch {
+          env = {};
+          envWarning = ' (Umgebung konnte gerade nicht geprüft werden – später erneut speichern)';
         }
       }
 
@@ -820,7 +955,8 @@ if (formEl) {
         beachType: document.getElementById('beachType').value,
         beachShade: document.getElementById('beachShade').value,
         travelDate: document.getElementById('travelDate').value.trim(),
-        airportIata, airportMinutes, beachMeters, exactMatch, osmMatch,
+        airportIata, airportMinutes, beachMeters, exactMatch, osmMatch, lat, lon,
+        ...Object.fromEntries(ENV_FIELDS.map((k) => [k, env[k] ?? ''])),
         notes: document.getElementById('notes').value.trim(),
         url: document.getElementById('url').value.trim()
       };
@@ -829,7 +965,7 @@ if (formEl) {
       else list.unshift(entry);
 
       saveHotels(list);
-      if (status) status.textContent = '✅ Gespeichert & Ranking berechnet!';
+      if (status) status.textContent = `✅ Gespeichert & Ranking berechnet!${envWarning}`;
       e.target.reset();
       if (editIndexEl) editIndexEl.value = '-1';
       setRelocateVisible(false);
@@ -853,7 +989,9 @@ if (exportBtn) {
       'Datum', 'Hotel', 'Ort', 'Preis_EUR', 'Verpflegung',
       'CHECK24_10', 'TUI_5', 'Google_5', 'HolidayCheck_Prozent', 'TripAdvisor_5', 'Eigene_Bewertung',
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
-      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR'
+      'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR',
+      'Breite', 'Laenge', 'Umgebung_geprueft', 'Einkauf_m', 'Einkauf_Name', 'Hauptstrasse_m', 'Hauptstrasse_Name',
+      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -885,7 +1023,10 @@ if (exportBtn) {
       h.url,
       h.exactMatch,
       h.osmMatch,
-      h.price2
+      h.price2,
+      h.lat, h.lon, h.envChecked, h.shopM, h.shopName, h.roadM, h.roadName,
+      String(h.airKm ?? '').replace('.', ','), h.airName,
+      String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ',')
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -924,14 +1065,16 @@ function parseCsv(text) {
 }
 
 const CSV_FIELD_MAP = {
-  Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Verpflegung: 'board',
+  Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Breite: 'lat', Laenge: 'lon', Umgebung_geprueft: 'envChecked',
+  Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName',
+  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
   Spielplatz: 'playground', Reisezeitraum: 'travelDate', Notiz: 'notes', Hotel_Link: 'url',
   Standort_Genauigkeit: 'exactMatch', OSM_Treffer: 'osmMatch'
 };
-const DECIMAL_FIELDS = ['rateC24', 'rateTUI', 'rateGoogle', 'rateHC', 'rateTA', 'rating'];
+const DECIMAL_FIELDS = ['airKm', 'rateC24', 'rateTUI', 'rateGoogle', 'rateHC', 'rateTA', 'rating'];
 
 function importCsvText(text) {
   const [header, ...rows] = parseCsv(text);
@@ -958,6 +1101,39 @@ function importCsvText(text) {
   saveHotels(list);
   return { added, skipped };
 }
+
+// Ergänzt Koordinaten und Umgebung für Hotels, die vor dieser Funktion gespeichert wurden.
+document.getElementById('envAllBtn')?.addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget, out = document.getElementById('envAllStatus');
+  const say = (t) => { if (out) out.textContent = t; };
+  const todo = getHotels().map((h, i) => ({ h, i })).filter(({ h }) => h.envChecked !== '1');
+  if (!todo.length) { say('✅ Alle Hotels haben bereits Umgebungsdaten.'); return; }
+  btn.disabled = true;
+  let done = 0, failed = 0;
+  for (const { h, i } of todo) {
+    try {
+      let { lat, lon } = h;
+      if (lat === '' || lat == null || lon === '' || lon == null) {
+        say(`${done + failed + 1}/${todo.length}: Suche Standort von „${h.hotelName}“ …`);
+        const coords = await geocodeHotel(h.hotelName, h.location, (msg) => say(`${done + failed + 1}/${todo.length}: ${msg}`));
+        lat = Math.round(coords.lat * 1e6) / 1e6; lon = Math.round(coords.lon * 1e6) / 1e6;
+      }
+      say(`${done + failed + 1}/${todo.length}: Prüfe Umgebung von „${h.hotelName}“ …`);
+      const env = await fetchSurroundings(Number(lat), Number(lon));
+      const list = getHotels();
+      // Liste könnte sich zwischenzeitlich geändert haben: nur aktualisieren, wenn derselbe Eintrag noch an der Stelle steht
+      if (list[i] && list[i].hotelName === h.hotelName && list[i].location === h.location) {
+        list[i] = { ...list[i], lat, lon, ...env };
+        saveHotels(list);
+      }
+      done++;
+    } catch {
+      failed++; // Abbruch in der Trefferauswahl oder Server nicht erreichbar
+    }
+  }
+  btn.disabled = false;
+  say(`✅ ${done} Hotel(s) ergänzt${failed ? `, ${failed} übersprungen (abgebrochen oder Server nicht erreichbar – später erneut versuchen)` : ''}.`);
+});
 
 const importInput = document.getElementById('importFile');
 document.getElementById('importBtn')?.addEventListener('click', () => importInput?.click());
