@@ -797,6 +797,18 @@ function isDeal(h) {
   return Math.min(p1, p2) < Math.max(p1, p2) * (1 - DEAL_THRESHOLD);
 }
 
+// Strandentfernung: bis 200 m +4, bis 400 m gleitend auf 0,
+// danach Abzug: 600 m = −6 (zu weit), darüber weiter bis höchstens −10.
+function beachDistancePoints(meters) {
+  const m = num(meters);
+  if (m === null || m < 0) return 0;
+  let p;
+  if (m <= 200) p = 4;
+  else if (m <= 400) p = 4 - ((m - 200) / 200) * 4;
+  else p = -((m - 400) / 200) * 6;
+  return Math.round(Math.max(-10, p) * 10) / 10;
+}
+
 function computeRankedHotels(list) {
   if (!list || list.length === 0) return [];
   const validPrices = list.map(effectivePrice).filter((p) => p > 0).sort((a, b) => a - b);
@@ -828,11 +840,8 @@ function computeRankedHotels(list) {
     if (h.beachType === 'Sand') beachPoints += 5;
     else if (h.beachType === 'Sand/Kies') beachPoints += 2;
 
-    const bm = Number(h.beachMeters);
-    if (h.beachMeters !== '' && h.beachMeters != null && !isNaN(bm) && bm >= 0) {
-      if (bm <= 200) beachPoints += 4;
-      else if (bm <= 500) beachPoints += 2;
-    }
+    const beachDist = beachDistancePoints(h.beachMeters);
+    beachPoints += beachDist;
 
     const price = effectivePrice(h);
     const priceRatio = price > 0 && medianPrice > 0 ? price / medianPrice : 1;
@@ -857,7 +866,7 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
+    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -926,6 +935,7 @@ function renderList() {
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
     const envParts = [];
+    if (h.beachDistPoints < 0) envParts.push(`🏖️ Strand ${h.beachMeters} m entfernt: ${fmtPoints(h.beachDistPoints)}`);
     if (h.transferPoints < 0) envParts.push(`🚐 Transfer ${h.airportMinutes} Min.: ${fmtPoints(h.transferPoints)}`);
     if (h.envChecked === '1') envParts.push(`🏘️ Umgebung ${fmtPoints(h.envPoints)}: ${raw.envNotes.map(escapeHtml).join(' · ')}`);
     else envParts.push('🏘️ Umgebung nicht geprüft (Hotel bearbeiten → „Standort neu suchen“)');
