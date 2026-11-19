@@ -10,7 +10,7 @@ function toRad(deg) {
 
 const AIRPORTS = [
   { iata: 'AYT', name: 'Antalya', lat: 36.8987, lon: 30.8005 },
-  { iata: 'GZP', name: 'Gazipaşa-Alanya', lat: 36.2992, lon: 32.3006 },
+  { iata: 'GZP', name: 'Gazipaşa-Alanya', lat: 36.2992, lon: 32.3006, minor: true },
   { iata: 'DLM', name: 'Dalaman', lat: 36.7131, lon: 28.7925 },
   { iata: 'BJV', name: 'Bodrum-Milas', lat: 37.2506, lon: 27.6643 },
   { iata: 'ADB', name: 'Izmir', lat: 38.2924, lon: 27.1570 },
@@ -29,7 +29,7 @@ const AIRPORTS = [
   { iata: 'MAH', name: 'Menorca', lat: 39.8626, lon: 4.2186 },
   { iata: 'LPA', name: 'Gran Canaria', lat: 27.9319, lon: -15.3866 },
   { iata: 'TFS', name: 'Teneriffa Süd', lat: 28.0445, lon: -16.5725 },
-  { iata: 'TFN', name: 'Teneriffa Nord', lat: 28.4827, lon: -16.3415 },
+  { iata: 'TFN', name: 'Teneriffa Nord', lat: 28.4827, lon: -16.3415, minor: true },
   { iata: 'FUE', name: 'Fuerteventura', lat: 28.4527, lon: -13.8638 },
   { iata: 'ACE', name: 'Lanzarote', lat: 28.9455, lon: -13.6052 },
   { iata: 'SPC', name: 'La Palma', lat: 28.6265, lon: -17.7556 },
@@ -369,14 +369,35 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function findNearestAirport(lat, lon) {
-  let nearest = null, minDist = Infinity;
+// Kleine Flughäfen (minor) werden von Pauschalreisen selten angeflogen:
+// Sie zählen nur, wenn sie weniger als halb so weit entfernt sind wie der nächste große.
+const MINOR_AIRPORT_FACTOR = 2;
+function findNearestAirport(lat, lon, forcedIata = '') {
+  if (forcedIata) {
+    const ap = AIRPORTS.find((a) => a.iata === forcedIata);
+    if (ap) return { ...ap, airMeters: haversineMeters(lat, lon, ap.lat, ap.lon) };
+  }
+  let nearest = null, bestScore = Infinity;
   for (const ap of AIRPORTS) {
     const d = haversineMeters(lat, lon, ap.lat, ap.lon);
-    if (d < minDist) { minDist = d; nearest = { ...ap, airMeters: d }; }
+    if (d > 250000) continue;
+    const score = d * (ap.minor ? MINOR_AIRPORT_FACTOR : 1);
+    if (score < bestScore) { bestScore = score; nearest = { ...ap, airMeters: d }; }
   }
-  return minDist <= 250000 ? nearest : null;
+  return nearest;
 }
+
+// Auswahlliste im Formular füllen
+(function fillAirportChoice() {
+  const sel = document.getElementById('airportChoice');
+  if (!sel) return;
+  [...AIRPORTS].sort((a, b) => a.name.localeCompare(b.name, 'de')).forEach((ap) => {
+    const opt = document.createElement('option');
+    opt.value = ap.iata;
+    opt.textContent = `${ap.name} (${ap.iata})`;
+    sel.append(opt);
+  });
+})();
 
 // Meeresabstand aus OSM-Vektorkacheln (OpenFreeMap, OpenMapTiles-Schema, Layer "water", class "ocean").
 const OCEAN_TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
@@ -827,6 +848,7 @@ function editHotel(origIndex) {
   document.getElementById('beachType').value = h.beachType || 'Unbekannt';
   document.getElementById('beachShade').value = h.beachShade || 'Keine/Unbekannt';
   document.getElementById('travelDate').value = h.travelDate || '';
+  const ac = document.getElementById('airportChoice'); if (ac) ac.value = h.airportChoice || '';
   document.getElementById('notes').value = h.notes || '';
   setRelocateVisible(true);
   const btn = document.getElementById('saveBtn'); if (btn) btn.textContent = '💾 Änderungen & Ranking aktualisieren';
@@ -905,15 +927,18 @@ if (formEl) {
       let lat = existing?.lat ?? '', lon = existing?.lon ?? '';
       let env = existing?.envChecked === '1' ? Object.fromEntries(ENV_FIELDS.map((k) => [k, existing[k] ?? ''])) : {};
       let locationChanged = false;
+      const airportChoice = document.getElementById('airportChoice')?.value || '';
+      const airportChanged = !!existing && (existing.airportChoice || '') !== airportChoice;
 
       const relocateEl = document.getElementById('relocate');
-      if (!existing || existing.hotelName !== hotelName || existing.location !== location || relocateEl?.checked) {
+      const hasCoords = lat !== '' && lat != null && lon !== '' && lon != null;
+      if (!existing || existing.hotelName !== hotelName || existing.location !== location || relocateEl?.checked || (airportChanged && !hasCoords)) {
         if (status) status.textContent = '1/4 Suche Koordinaten...';
         const coords = await geocodeHotel(hotelName, location, (msg) => { if (status) status.textContent = `1/4 ${msg}`; }, !!relocateEl?.checked);
         lat = Math.round(coords.lat * 1e6) / 1e6; lon = Math.round(coords.lon * 1e6) / 1e6;
         locationChanged = true;
         if (status) status.textContent = '2/4 Suche Strand & Flughafen...';
-        const airport = findNearestAirport(coords.lat, coords.lon);
+        const airport = findNearestAirport(coords.lat, coords.lon, airportChoice);
         beachMeters = (await findNearestBeachMeters(coords.lat, coords.lon)) ?? '';
         exactMatch = coords.manual ? 'Manuell' : coords.exact ? 'Exakt' : 'Ortszentrum';
         osmMatch = coords.matchName;
@@ -921,6 +946,21 @@ if (formEl) {
         if (airport) {
           if (status) status.textContent = `3/4 Berechne Fahrtdauer nach ${airport.iata}...`;
           let mins = await fetchDriveMinutes(coords.lat, coords.lon, airport.lat, airport.lon);
+          if (mins === null) mins = Math.max(5, Math.round((airport.airMeters / 1000) * 1.1));
+          airportIata = `${airport.name} (${airport.iata})`;
+          airportMinutes = mins;
+        }
+      }
+
+      // Nur der Flughafen wurde geändert: Fahrtdauer mit gespeicherten Koordinaten neu berechnen
+      // … oder die Automatik würde heute einen anderen Flughafen wählen (z. B. AYT statt GZP)
+      const autoNow = hasCoords && !airportChoice ? findNearestAirport(Number(lat), Number(lon)) : null;
+      const autoDiffers = !!autoNow && !String(existing?.airportIata || '').includes(`(${autoNow.iata})`);
+      if ((airportChanged || autoDiffers) && !locationChanged && hasCoords) {
+        const airport = findNearestAirport(Number(lat), Number(lon), airportChoice);
+        if (airport) {
+          if (status) status.textContent = `Berechne Fahrtdauer nach ${airport.iata}...`;
+          let mins = await fetchDriveMinutes(Number(lat), Number(lon), airport.lat, airport.lon);
           if (mins === null) mins = Math.max(5, Math.round((airport.airMeters / 1000) * 1.1));
           airportIata = `${airport.name} (${airport.iata})`;
           airportMinutes = mins;
@@ -955,7 +995,7 @@ if (formEl) {
         beachType: document.getElementById('beachType').value,
         beachShade: document.getElementById('beachShade').value,
         travelDate: document.getElementById('travelDate').value.trim(),
-        airportIata, airportMinutes, beachMeters, exactMatch, osmMatch, lat, lon,
+        airportIata, airportMinutes, airportChoice, beachMeters, exactMatch, osmMatch, lat, lon,
         ...Object.fromEntries(ENV_FIELDS.map((k) => [k, env[k] ?? ''])),
         notes: document.getElementById('notes').value.trim(),
         url: document.getElementById('url').value.trim()
@@ -991,7 +1031,7 @@ if (exportBtn) {
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
       'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR',
       'Breite', 'Laenge', 'Umgebung_geprueft', 'Einkauf_m', 'Einkauf_Name', 'Hauptstrasse_m', 'Hauptstrasse_Name',
-      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt'
+      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt', 'Flughafen_Wahl'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -1026,7 +1066,8 @@ if (exportBtn) {
       h.price2,
       h.lat, h.lon, h.envChecked, h.shopM, h.shopName, h.roadM, h.roadName,
       String(h.airKm ?? '').replace('.', ','), h.airName,
-      String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ',')
+      String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ','),
+      h.airportChoice
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -1067,7 +1108,7 @@ function parseCsv(text) {
 const CSV_FIELD_MAP = {
   Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Breite: 'lat', Laenge: 'lon', Umgebung_geprueft: 'envChecked',
   Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName',
-  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Verpflegung: 'board',
+  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Flughafen_Wahl: 'airportChoice', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
@@ -1120,10 +1161,18 @@ document.getElementById('envAllBtn')?.addEventListener('click', async (ev) => {
       }
       say(`${done + failed + 1}/${todo.length}: Prüfe Umgebung von „${h.hotelName}“ …`);
       const env = await fetchSurroundings(Number(lat), Number(lon));
+      const airportUpdate = {};
+      const ap = findNearestAirport(Number(lat), Number(lon), h.airportChoice || '');
+      if (ap && !String(h.airportIata || '').includes(`(${ap.iata})`)) {
+        let mins = await fetchDriveMinutes(Number(lat), Number(lon), ap.lat, ap.lon);
+        if (mins === null) mins = Math.max(5, Math.round((ap.airMeters / 1000) * 1.1));
+        airportUpdate.airportIata = `${ap.name} (${ap.iata})`;
+        airportUpdate.airportMinutes = mins;
+      }
       const list = getHotels();
       // Liste könnte sich zwischenzeitlich geändert haben: nur aktualisieren, wenn derselbe Eintrag noch an der Stelle steht
       if (list[i] && list[i].hotelName === h.hotelName && list[i].location === h.location) {
-        list[i] = { ...list[i], lat, lon, ...env };
+        list[i] = { ...list[i], lat, lon, ...env, ...airportUpdate };
         saveHotels(list);
       }
       done++;
