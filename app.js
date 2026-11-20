@@ -1009,7 +1009,8 @@ function renderList() {
     container.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;">Noch keine Hotels gespeichert.</p>';
     return;
   }
-  container.innerHTML = ranked.map((raw, rankIdx) => {
+  renderBackupNotice(all);
+  const cards = ranked.map((raw, rankIdx) => {
     // Alle Textfelder escapen: Hotelname & Co. können aus geteilten Seitentiteln stammen.
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
@@ -1049,7 +1050,15 @@ function renderList() {
         <div class="meta">🏖️ ${h.beachType || '?'} (${h.beachShade || '?'})</div>
         <div class="meta">${envLine}</div>
       </div>`;
-  }).join('');
+  });
+  // Nur die besten 10 direkt zeigen, den Rest einklappen
+  const TOP_N = 10;
+  container.innerHTML = cards.slice(0, TOP_N).join('') + (cards.length > TOP_N
+    ? `<details class="more-list"${view.showMore ? ' open' : ''}><summary>Weitere ${cards.length - TOP_N} Hotel(s) anzeigen</summary>${cards.slice(TOP_N).join('')}</details>`
+    : '');
+  container.querySelector('.more-list')?.addEventListener('toggle', (ev) => {
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify({ ...getView(), showMore: ev.target.open })); } catch {}
+  });
 }
 
 const formEl = document.getElementById('hotelForm');
@@ -1184,6 +1193,44 @@ if (formEl) {
   });
 }
 
+// ---------- Erinnerung an die Datensicherung ----------
+const BACKUP_KEY = 'hotel_backup_v1';
+const BACKUP_REMIND_DAYS = 14, BACKUP_SNOOZE_DAYS = 3, DAY_MS = 86400000;
+function getBackupState() {
+  try { return JSON.parse(localStorage.getItem(BACKUP_KEY) || '{}'); } catch { return {}; }
+}
+function setBackupState(patch) {
+  try { localStorage.setItem(BACKUP_KEY, JSON.stringify({ ...getBackupState(), ...patch })); } catch {}
+}
+function markBackupDone() {
+  setBackupState({ lastAt: new Date().toISOString(), snoozeUntil: '' });
+  renderList();
+}
+// Erinnert nur, wenn es seit der letzten Sicherung Änderungen gibt und sie länger her ist.
+function renderBackupNotice(all) {
+  const el = document.getElementById('backupNotice');
+  if (!el) return;
+  const { lastAt = '', snoozeUntil = '' } = getBackupState();
+  const now = Date.now();
+  const changedSince = !lastAt || all.some((h) => (h.updatedAt || '') > lastAt);
+  const days = lastAt ? Math.floor((now - Date.parse(lastAt)) / DAY_MS) : null;
+  const due = lastAt ? days >= BACKUP_REMIND_DAYS : all.length >= 3;
+  const snoozed = snoozeUntil && now < Date.parse(snoozeUntil);
+  if (!all.length || !changedSince || !due || snoozed) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `💾 ${lastAt ? `Letzte Sicherung vor ${days} Tagen, seitdem gab es Änderungen.` : 'Deine Liste wurde noch nie gesichert.'}
+    Ohne Sicherung geht sie verloren, wenn Browserdaten gelöscht werden.
+    <div class="row" style="margin-top:6px;">
+      <button type="button" class="btn-small" style="width:100%;padding:8px;" id="backupNowBtn">Jetzt sichern</button>
+      <button type="button" class="btn-small" style="width:100%;padding:8px;background:transparent;border:1px solid #475569;" id="backupLaterBtn">In ${BACKUP_SNOOZE_DAYS} Tagen erinnern</button>
+    </div>`;
+  document.getElementById('backupNowBtn')?.addEventListener('click', () => document.getElementById('exportBtn')?.click());
+  document.getElementById('backupLaterBtn')?.addEventListener('click', () => {
+    setBackupState({ snoozeUntil: new Date(now + BACKUP_SNOOZE_DAYS * DAY_MS).toISOString() });
+    el.hidden = true;
+  });
+}
+
 const exportBtn = document.getElementById('exportBtn');
 if (exportBtn) {
   exportBtn.addEventListener('click', async () => {
@@ -1243,12 +1290,14 @@ if (exportBtn) {
     const file = new File([csvContent], 'hotel_ranking.csv', { type: 'text/csv;charset=utf-8;' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ title: 'Hotel Ranking', files: [file] }); return; } catch (e) {}
+      try { await navigator.share({ title: 'Hotel Ranking', files: [file] }); markBackupDone(); return; }
+      catch (e) { if (e?.name === 'AbortError') return; } // Teilen abgebrochen: nichts gesichert
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(file);
     a.download = 'hotel_ranking.csv';
     a.click();
+    markBackupDone();
   });
 }
 

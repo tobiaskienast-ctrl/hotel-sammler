@@ -27,6 +27,8 @@
     .btn-small { background: #334155; color: #e2e8f0; width: auto; padding: 4px 8px; margin: 0; font-size: 0.78rem; }
     .btn-del { background: transparent; color: var(--danger); width: auto; padding: 4px 8px; margin: 0; font-size: 0.85rem; }
     .dup-notice { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; margin-bottom: 10px; }
+    .more-list { margin-top: 10px; }
+    .more-list > summary { cursor: pointer; color: #38bdf8; font-weight: 600; font-size: 0.85rem; padding: 10px 0; border-top: 1px solid #334155; }
     .list-controls { margin-top: 14px; padding-top: 10px; border-top: 1px solid #334155; }
     .help { margin-top: 10px; font-size: 0.82rem; color: var(--text); }
     .help summary { cursor: pointer; color: #38bdf8; font-weight: 600; }
@@ -232,6 +234,7 @@
   </form>
 
   <div class="card">
+    <div id="backupNotice" class="dup-notice" hidden></div>
     <button type="button" class="btn-export" id="exportBtn">📤 Ranking-CSV an OneDrive senden</button>
     <button type="button" class="btn-clear" id="envAllBtn">🏘️ Fehlende Umgebungsdaten ergänzen</button>
     <div id="envAllStatus" class="chooser-sub"></div>
@@ -334,6 +337,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=33"></script>
+  <script src="./app.js?v=34"></script>
 </body>
 </html>
