@@ -138,14 +138,6 @@
           <option value="1">⭐ (1)</option>
         </select>
       </div>
-      <div>
-        <label for="playground">Spielplatz (Metainfo)</label>
-        <select id="playground">
-          <option value="Ja">Ja</option>
-          <option value="Nein">Nein</option>
-          <option value="Unbekannt" selected>Unbekannt</option>
-        </select>
-      </div>
     </div>
 
     <div class="row">
@@ -170,6 +162,28 @@
       </div>
     </div>
 
+    <div class="section-title">Für die Kinder</div>
+    <div class="row">
+      <div>
+        <label for="kidsPool">Kinderpool</label>
+        <select id="kidsPool">
+          <option value="Ja">Ja</option>
+          <option value="Nein">Nein</option>
+          <option value="Unbekannt" selected>Unbekannt</option>
+        </select>
+      </div>
+      <div>
+        <label for="playground">Spielplatz</label>
+        <select id="playground">
+          <option value="Ja">Ja</option>
+          <option value="Nein">Nein</option>
+          <option value="Unbekannt" selected>Unbekannt</option>
+        </select>
+      </div>
+    </div>
+    <button type="button" class="btn-search" id="kidsSearchBtn">🔍 Bei Google prüfen (Kinderpool &amp; Spielplatz)</button>
+
+    <div class="section-title">Reise</div>
     <label for="airportChoice">Ankunftsflughafen</label>
     <select id="airportChoice">
       <option value="">Automatisch (großer Urlaubsflughafen bevorzugt)</option>
@@ -274,6 +288,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=31"></script>
+  <script src="./app.js?v=32"></script>
 </body>
 </html>

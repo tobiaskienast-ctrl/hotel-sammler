@@ -823,6 +823,12 @@ function boardPoints(board) {
   return BOARD_POINTS[board] ?? 0;
 }
 
+// Kinderpool und Spielplatz: sehr wichtig für Familien mit kleinen Kindern.
+const KIDS_POINTS = { Ja: 3, Unbekannt: 0, Nein: -6 };
+function kidsPoints(h) {
+  return (KIDS_POINTS[h.kidsPool] ?? 0) + (KIDS_POINTS[h.playground] ?? 0);
+}
+
 function computeRankedHotels(list) {
   if (!list || list.length === 0) return [];
   const validPrices = list.map(effectivePrice).filter((p) => p > 0).sort((a, b) => a - b);
@@ -866,7 +872,8 @@ function computeRankedHotels(list) {
     const env = surroundingsPoints(h);
     const transfer = transferMalus(h.airportMinutes);
     const board = boardPoints(h.board);
-    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus + env.points + transfer + board) * 10) / 10;
+    const kids = kidsPoints(h);
+    const totalQuality = Math.round((portalPoints + ownPoints + beachPoints + portalBonus + env.points + transfer + board + kids) * 10) / 10;
 
     // Preis relativ zum mittleren Listenpreis: 10 % teurer ≈ −2,5 Punkte, 10 % günstiger ≈ +2,5 Punkte.
     // Durch den Logarithmus zählt derselbe prozentuale Aufpreis immer gleich viel.
@@ -881,7 +888,7 @@ function computeRankedHotels(list) {
       else if (h.url.includes('booking')) portalSource = 'Booking';
     }
 
-    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, boardPoints: board, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
+    return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, boardPoints: board, kidsPoints: kids, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
   });
 
   scored.sort((a, b) => b.plScore - a.plScore);
@@ -920,6 +927,7 @@ function editHotel(origIndex) {
   const ta = document.getElementById('rateTA'); if (ta) ta.value = h.rateTA || '';
   document.getElementById('rating').value = h.rating || '4';
   document.getElementById('playground').value = h.playground || 'Unbekannt';
+  const kp = document.getElementById('kidsPool'); if (kp) kp.value = h.kidsPool || 'Unbekannt';
   document.getElementById('beachType').value = h.beachType || 'Unbekannt';
   document.getElementById('beachShade').value = h.beachShade || 'Keine/Unbekannt';
   document.getElementById('travelDate').value = h.travelDate || '';
@@ -950,6 +958,8 @@ function renderList() {
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
     const envParts = [];
+    const kidsMark = (v) => (v === 'Ja' ? '✓' : v === 'Nein' ? '✗' : '?');
+    envParts.push(`👶 Kinderpool ${kidsMark(h.kidsPool)} · Spielplatz ${kidsMark(h.playground)}${h.kidsPoints ? `: ${fmtPoints(h.kidsPoints)}` : ''}`);
     if (h.boardPoints !== 0) envParts.push(`🍽️ ${h.board}: ${fmtPoints(h.boardPoints)}`);
     if (h.beachDistPoints < 0) envParts.push(`🏖️ Strand ${h.beachMeters} m entfernt: ${fmtPoints(h.beachDistPoints)}`);
     if (h.transferPoints < 0) envParts.push(`🚐 Transfer ${h.airportMinutes} Min.: ${fmtPoints(h.transferPoints)}`);
@@ -1069,6 +1079,7 @@ if (formEl) {
         rateTA: document.getElementById('rateTA')?.value.trim().replace(',', '.') || '',
         rating: document.getElementById('rating').value,
         playground: document.getElementById('playground').value,
+        kidsPool: document.getElementById('kidsPool')?.value || 'Unbekannt',
         beachType: document.getElementById('beachType').value,
         beachShade: document.getElementById('beachShade').value,
         travelDate: document.getElementById('travelDate').value.trim(),
@@ -1108,7 +1119,7 @@ if (exportBtn) {
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
       'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR',
       'Breite', 'Laenge', 'Umgebung_geprueft', 'Einkauf_m', 'Einkauf_Name', 'Hauptstrasse_m', 'Hauptstrasse_Name',
-      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt', 'Flughafen_Wahl'
+      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt', 'Flughafen_Wahl', 'Kinderpool'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -1144,7 +1155,8 @@ if (exportBtn) {
       h.lat, h.lon, h.envChecked, h.shopM, h.shopName, h.roadM, h.roadName,
       String(h.airKm ?? '').replace('.', ','), h.airName,
       String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ','),
-      h.airportChoice
+      h.airportChoice,
+      h.kidsPool
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -1185,7 +1197,7 @@ function parseCsv(text) {
 const CSV_FIELD_MAP = {
   Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Breite: 'lat', Laenge: 'lon', Umgebung_geprueft: 'envChecked',
   Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName',
-  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Flughafen_Wahl: 'airportChoice', Verpflegung: 'board',
+  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Flughafen_Wahl: 'airportChoice', Kinderpool: 'kidsPool', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
@@ -1259,6 +1271,15 @@ document.getElementById('envAllBtn')?.addEventListener('click', async (ev) => {
   }
   btn.disabled = false;
   say(`✅ ${done} Hotel(s) ergänzt${failed ? `, ${failed} übersprungen (abgebrochen oder Server nicht erreichbar – später erneut versuchen)` : ''}.`);
+});
+
+// Google-Suche nach Kinderpool und Spielplatz für das Hotel im Formular
+document.getElementById('kidsSearchBtn')?.addEventListener('click', () => {
+  const name = document.getElementById('hotelName')?.value.trim();
+  const loc = document.getElementById('location')?.value.trim();
+  if (!name) { alert('Bitte zuerst den Hotelnamen eintragen.'); return; }
+  const q = `"${name}" ${loc || ''} Kinderbecken Kinderpool Spielplatz`.replace(/\s+/g, ' ').trim();
+  window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, '_blank');
 });
 
 const importInput = document.getElementById('importFile');
