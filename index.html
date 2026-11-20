@@ -26,6 +26,15 @@
     .btn-search { background: #334155; color: #e2e8f0; font-size: 0.78rem; padding: 7px 6px; margin-top: 6px; }
     .btn-small { background: #334155; color: #e2e8f0; width: auto; padding: 4px 8px; margin: 0; font-size: 0.78rem; }
     .btn-del { background: transparent; color: var(--danger); width: auto; padding: 4px 8px; margin: 0; font-size: 0.85rem; }
+    .dup-notice { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; margin-bottom: 10px; }
+    .list-controls { margin-top: 14px; padding-top: 10px; border-top: 1px solid #334155; }
+    .help { margin-top: 10px; font-size: 0.82rem; color: var(--text); }
+    .help summary { cursor: pointer; color: #38bdf8; font-weight: 600; }
+    .help table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+    .help td { padding: 3px 4px; border-bottom: 1px solid #334155; vertical-align: top; }
+    .help td:last-child { text-align: right; white-space: nowrap; color: var(--muted); }
+    .help h4 { margin: 10px 0 2px; font-size: 0.85rem; color: var(--text); }
+    .help p { margin: 4px 0; color: var(--muted); }
     .status { font-size: 0.85rem; color: #38bdf8; margin-top: 10px; min-height: 1.2em; word-break: break-word; }
     .chooser { margin-top: 10px; padding: 10px; border: 1px solid var(--gold); border-radius: 10px; background: rgba(245, 158, 11, 0.06); }
     .chooser-msg { font-size: 0.85rem; color: var(--gold); margin-bottom: 4px; }
@@ -54,6 +63,7 @@
 
   <form id="hotelForm" class="card">
     <input type="hidden" id="editIndex" value="-1" />
+    <div id="dupNotice" class="dup-notice" hidden></div>
 
     <label for="url">Hotel-Link (Check24, TUI etc.)</label>
     <input type="url" id="url" placeholder="https://urlaub.check24.de/... oder https://www.tui.com/..." required />
@@ -190,7 +200,24 @@
     </select>
 
     <label for="travelDate">Reisezeitraum</label>
-    <input type="text" id="travelDate" placeholder="z. B. Sep 2026" />
+    <select id="travelDate">
+      <option value="">Unbekannt / flexibel</option>
+      <option value="Januar">Januar</option>
+      <option value="Februar">Februar</option>
+      <option value="März">März</option>
+      <option value="April">April</option>
+      <option value="Mai">Mai</option>
+      <option value="Juni">Juni</option>
+      <option value="Juli">Juli</option>
+      <option value="August">August</option>
+      <option value="September">September</option>
+      <option value="Oktober">Oktober</option>
+      <option value="November">November</option>
+      <option value="Dezember">Dezember</option>
+      <option value="Pfingstferien">Pfingstferien</option>
+      <option value="Sommerferien">Sommerferien</option>
+      <option value="Herbstferien">Herbstferien</option>
+    </select>
 
     <label for="notes">Notiz (Pools, Rutschen, Transfer...)</label>
     <textarea id="notes" rows="2" placeholder="Kurze Notiz..."></textarea>
@@ -211,6 +238,25 @@
     <button type="button" class="btn-clear" id="importBtn">📥 Ranking-CSV importieren</button>
     <input type="file" id="importFile" accept=".csv,text/csv" hidden />
     <button type="button" class="btn-clear" id="clearAllBtn">🗑️ Gespeicherte Liste komplett leeren</button>
+    <div class="list-controls">
+      <div class="row">
+        <div>
+          <label for="sortBy">Sortierung</label>
+          <select id="sortBy">
+            <option value="score">Preis-Leistung</option>
+            <option value="quality">Nur Qualität</option>
+          </select>
+        </div>
+        <div>
+          <label for="periodFilter">Reisezeitraum</label>
+          <select id="periodFilter"><option value="">Alle</option></select>
+        </div>
+      </div>
+      <details class="help">
+        <summary>ℹ️ Wie wird bewertet?</summary>
+        <div id="scoringHelpBody"></div>
+      </details>
+    </div>
     <div id="hotelList" style="margin-top: 14px;"></div>
   </div>
 
@@ -288,6 +334,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=32"></script>
+  <script src="./app.js?v=33"></script>
 </body>
 </html>

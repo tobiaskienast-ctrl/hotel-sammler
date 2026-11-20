@@ -829,14 +829,15 @@ function kidsPoints(h) {
   return (KIDS_POINTS[h.kidsPool] ?? 0) + (KIDS_POINTS[h.playground] ?? 0);
 }
 
-function computeRankedHotels(list) {
+function computeRankedHotels(list, sortBy = 'score') {
   if (!list || list.length === 0) return [];
   const validPrices = list.map(effectivePrice).filter((p) => p > 0).sort((a, b) => a - b);
   const mid = Math.floor(validPrices.length / 2);
   const medianPrice = validPrices.length === 0 ? 0
     : validPrices.length % 2 ? validPrices[mid] : (validPrices[mid - 1] + validPrices[mid]) / 2;
 
-  const scored = list.map((h, origIndex) => {
+  const scored = list.map((h, i) => {
+    const origIndex = h.__origIndex ?? i; // bei gefilterter Liste: Index in der Gesamtliste
     const portalNorms = [
       normalizeRating(h.rateC24, 7.0, 10.0),
       normalizeRating(h.rateTUI, 3.5, 5.0),
@@ -891,10 +892,30 @@ function computeRankedHotels(list) {
     return { ...h, origIndex, effPrice: Math.round(price), isDeal: isDeal(h), normalizedPortal10, totalQuality, portalBonus: Math.round(portalBonus * 10) / 10, beachDistPoints: beachDist, boardPoints: board, kidsPoints: kids, envPoints: env.points, envNotes: env.notes, transferPoints: transfer, priceAdj, plScore, portalSource };
   });
 
-  scored.sort((a, b) => b.plScore - a.plScore);
+  const metric = sortBy === 'quality' ? 'totalQuality' : 'plScore';
+  scored.sort((a, b) => b[metric] - a[metric]);
   // Hotels mit weniger als 1,5 Punkten Abstand zum Vorgänger gelten als praktisch gleichauf.
-  scored.forEach((h, i) => { h.tiedWithPrev = i > 0 && scored[i - 1].plScore - h.plScore < TIE_POINTS; });
+  scored.forEach((h, i) => { h.tiedWithPrev = i > 0 && scored[i - 1][metric] - h[metric] < TIE_POINTS; });
   return scored;
+}
+
+// ---------- Gleiches Hotel erkennen ----------
+function normName(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+function normUrl(u) {
+  try { const x = new URL(u); return (x.hostname.replace(/^www\./, '') + x.pathname).replace(/\/$/, '').toLowerCase(); } catch { return ''; }
+}
+// Gleicher Name (und kein widersprüchlicher Ort) oder gleicher Link
+function isSameHotel(a, b) {
+  const na = normName(a.hotelName), nb = normName(b.hotelName);
+  const la = normName(a.location), lb = normName(b.location);
+  if (na && na === nb && (!la || !lb || la === lb)) return true;
+  const ua = normUrl(a.url), ub = normUrl(b.url);
+  return !!ua && ua === ub;
+}
+function findSameHotelIndex(list, h, skipIndex = -1) {
+  return list.findIndex((x, i) => i !== skipIndex && isSameHotel(x, h));
 }
 
 function getHotels() { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
@@ -907,6 +928,17 @@ function setRelocateVisible(visible) {
   const box = document.getElementById('relocate');
   if (wrap) wrap.hidden = !visible;
   if (box) box.checked = false;
+}
+
+// Setzt einen Auswahlwert; fehlt er (z. B. alter Freitext „Sep 2026“), wird er als Option ergänzt.
+function setSelectValue(sel, value) {
+  if (!sel) return;
+  if (value && ![...sel.options].some((o) => o.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = value;
+    sel.append(opt);
+  }
+  sel.value = value;
 }
 
 function editHotel(origIndex) {
@@ -930,7 +962,7 @@ function editHotel(origIndex) {
   const kp = document.getElementById('kidsPool'); if (kp) kp.value = h.kidsPool || 'Unbekannt';
   document.getElementById('beachType').value = h.beachType || 'Unbekannt';
   document.getElementById('beachShade').value = h.beachShade || 'Keine/Unbekannt';
-  document.getElementById('travelDate').value = h.travelDate || '';
+  setSelectValue(document.getElementById('travelDate'), h.travelDate || '');
   const ac = document.getElementById('airportChoice'); if (ac) ac.value = h.airportChoice || '';
   document.getElementById('notes').value = h.notes || '';
   setRelocateVisible(true);
@@ -942,10 +974,34 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
+const VIEW_KEY = 'hotel_view_v1';
+function getView() {
+  try { return { sortBy: 'score', period: '', ...JSON.parse(localStorage.getItem(VIEW_KEY) || '{}') }; } catch { return { sortBy: 'score', period: '' }; }
+}
+function setView(patch) {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify({ ...getView(), ...patch })); } catch {}
+  renderList();
+}
+
 function renderList() {
-  const ranked = computeRankedHotels(getHotels());
+  const all = getHotels();
+  const view = getView();
   const badge = document.getElementById('countBadge');
-  if (badge) badge.textContent = ranked.length;
+  if (badge) badge.textContent = all.length;
+
+  // Zeitraum-Filter: nur Zeiträume anbieten, die in der Liste vorkommen
+  const periodSel = document.getElementById('periodFilter');
+  const periods = [...new Set(all.map((h) => h.travelDate).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  if (view.period && !periods.includes(view.period)) view.period = '';
+  if (periodSel) {
+    periodSel.innerHTML = '<option value="">Alle</option>' + periods.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+    periodSel.value = view.period;
+  }
+  const sortSel = document.getElementById('sortBy');
+  if (sortSel) sortSel.value = view.sortBy;
+
+  const filtered = all.map((h, i) => ({ ...h, __origIndex: i })).filter((h) => !view.period || h.travelDate === view.period);
+  const ranked = computeRankedHotels(filtered, view.sortBy);
   const container = document.getElementById('hotelList');
   if (!container) return;
 
@@ -980,7 +1036,7 @@ function renderList() {
       <div class="item ${isWinner ? 'winner' : ''}">
         <div class="item-head">
           <div>
-            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}${h.price2 ? ` / ${h.price2} € → Ø ${h.effPrice} €` : ''}) [${h.portalSource}]</span><br/>
+            <span>${medal} · ${h.hotelName} (${h.price ? h.price + ' €' : 'k. A.'}${h.prevPrice ? ` <s style="opacity:.6">${h.prevPrice} €</s>` : ''}${h.price2 ? ` / ${h.price2} € → Ø ${h.effPrice} €` : ''}) [${h.portalSource}]</span><br/>
             <span class="score-pill">Score: ${String(h.plScore).replace('.', ',')} · Quali: ${String(h.totalQuality).replace('.', ',')}${h.portalBonus > 0 ? ` (inkl. ${fmtPoints(h.portalBonus)} Portal-Bonus)` : ''} · Preis: ${fmtPoints(h.priceAdj)}${h.normalizedPortal10 !== null ? ` · Portale: ${String(h.normalizedPortal10).replace('.', ',')}/10` : ''}</span>${h.isDeal ? '<br/><span class="deal-pill">⚡ Schnäppchen – Bedingungen prüfen (Flugzeiten, Transfer, Storno)</span>' : ''}${h.tiedWithPrev ? '<br/><span class="tie-pill">≈ praktisch gleichauf mit dem Hotel darüber</span>' : ''}
           </div>
           <div style="display:flex;gap:4px;">
@@ -1004,10 +1060,17 @@ if (formEl) {
     if (btn) btn.disabled = true;
 
     const editIndexEl = document.getElementById('editIndex');
-    const editIndex = editIndexEl ? Number(editIndexEl.value) : -1;
+    let editIndex = editIndexEl ? Number(editIndexEl.value) : -1;
     const hotelName = document.getElementById('hotelName').value.trim();
     const location = document.getElementById('location').value.trim();
-    const list = getHotels(), existing = editIndex >= 0 ? list[editIndex] : null;
+    const list = getHotels();
+    // Neues Hotel, das schon in der Liste steht → bestehenden Eintrag aktualisieren statt doppelt anlegen
+    let mergedDuplicate = false;
+    if (editIndex < 0) {
+      const dup = findSameHotelIndex(list, { hotelName, location, url: document.getElementById('url').value.trim() });
+      if (dup >= 0) { editIndex = dup; mergedDuplicate = true; }
+    }
+    const existing = editIndex >= 0 ? list[editIndex] : null;
 
     try {
       let airportIata = existing?.airportIata || '', airportMinutes = existing?.airportMinutes ?? '', beachMeters = existing?.beachMeters ?? '', exactMatch = existing?.exactMatch || '', osmMatch = existing?.osmMatch || '';
@@ -1082,18 +1145,33 @@ if (formEl) {
         kidsPool: document.getElementById('kidsPool')?.value || 'Unbekannt',
         beachType: document.getElementById('beachType').value,
         beachShade: document.getElementById('beachShade').value,
-        travelDate: document.getElementById('travelDate').value.trim(),
+        travelDate: document.getElementById('travelDate').value,
         airportIata, airportMinutes, airportChoice, beachMeters, exactMatch, osmMatch, lat, lon,
         ...Object.fromEntries(ENV_FIELDS.map((k) => [k, env[k] ?? ''])),
         notes: document.getElementById('notes').value.trim(),
-        url: document.getElementById('url').value.trim()
+        url: document.getElementById('url').value.trim() || existing?.url || '',
+        updatedAt: new Date().toISOString()
       };
+      // Preisänderung merken
+      const oldPrice = existing?.price || '';
+      entry.prevPrice = oldPrice && oldPrice !== entry.price ? oldPrice : existing?.prevPrice || '';
+      // Beim Zusammenführen leer gelassene Felder nicht überschreiben
+      if (mergedDuplicate) {
+        for (const k of ['location', 'price2', 'rateC24', 'rateTUI', 'rateGoogle', 'rateHC', 'rateTA', 'notes']) {
+          if (!entry[k] && existing[k]) entry[k] = existing[k];
+        }
+        for (const k of ['kidsPool', 'playground', 'beachType', 'beachShade']) {
+          if (/^(Unbekannt|Keine\/Unbekannt)$/.test(entry[k]) && existing[k]) entry[k] = existing[k];
+        }
+        if (!entry.travelDate && existing.travelDate) entry.travelDate = existing.travelDate;
+      }
 
       if (editIndex >= 0 && existing) list[editIndex] = entry;
       else list.unshift(entry);
 
       saveHotels(list);
-      if (status) status.textContent = `✅ Gespeichert & Ranking berechnet!${envWarning}`;
+      if (status) status.textContent = `✅ ${mergedDuplicate ? 'Bereits vorhandenes Hotel aktualisiert' : 'Gespeichert'} & Ranking berechnet!${envWarning}`;
+      hideDuplicateNotice();
       e.target.reset();
       if (editIndexEl) editIndexEl.value = '-1';
       setRelocateVisible(false);
@@ -1119,7 +1197,7 @@ if (exportBtn) {
       'Strand_Art', 'Strand_Schatten', 'Entfernung_Strand_m', 'Flughafen', 'Fahrtdauer_Flughafen_Min',
       'Spielplatz', 'Reisezeitraum', 'Notiz', 'Hotel_Link', 'Standort_Genauigkeit', 'OSM_Treffer', 'Preis2_EUR',
       'Breite', 'Laenge', 'Umgebung_geprueft', 'Einkauf_m', 'Einkauf_Name', 'Hauptstrasse_m', 'Hauptstrasse_Name',
-      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt', 'Flughafen_Wahl', 'Kinderpool'
+      'Flughafen_Naehe_km', 'Flughafen_Naehe_Name', 'Umgebung_Pkt', 'Transfer_Pkt', 'Flughafen_Wahl', 'Kinderpool', 'Vorpreis_EUR', 'Geaendert_am'
     ];
 
     const rows = ranked.map((h, idx) => [
@@ -1156,7 +1234,9 @@ if (exportBtn) {
       String(h.airKm ?? '').replace('.', ','), h.airName,
       String(h.envPoints).replace('.', ','), String(h.transferPoints).replace('.', ','),
       h.airportChoice,
-      h.kidsPool
+      h.kidsPool,
+      h.prevPrice,
+      h.updatedAt
     ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -1197,7 +1277,7 @@ function parseCsv(text) {
 const CSV_FIELD_MAP = {
   Datum: 'datum', Hotel: 'hotelName', Ort: 'location', Preis_EUR: 'price', Preis2_EUR: 'price2', Breite: 'lat', Laenge: 'lon', Umgebung_geprueft: 'envChecked',
   Einkauf_m: 'shopM', Einkauf_Name: 'shopName', Hauptstrasse_m: 'roadM', Hauptstrasse_Name: 'roadName',
-  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Flughafen_Wahl: 'airportChoice', Kinderpool: 'kidsPool', Verpflegung: 'board',
+  Flughafen_Naehe_km: 'airKm', Flughafen_Naehe_Name: 'airName', Flughafen_Wahl: 'airportChoice', Kinderpool: 'kidsPool', Vorpreis_EUR: 'prevPrice', Geaendert_am: 'updatedAt', Verpflegung: 'board',
   CHECK24_10: 'rateC24', TUI_5: 'rateTUI', TUI_10: 'rateTUI', Google_5: 'rateGoogle', HolidayCheck_Prozent: 'rateHC',
   TripAdvisor_5: 'rateTA', Eigene_Bewertung: 'rating', Strand_Art: 'beachType', Strand_Schatten: 'beachShade',
   Entfernung_Strand_m: 'beachMeters', Flughafen: 'airportIata', Fahrtdauer_Flughafen_Min: 'airportMinutes',
@@ -1210,9 +1290,7 @@ function importCsvText(text) {
   const [header, ...rows] = parseCsv(text);
   if (!header || !header.includes('Hotel')) throw new Error('Keine Hotel-Sammler-CSV erkannt.');
   const list = getHotels();
-  const key = (h) => `${h.hotelName}|${h.location}|${h.url}`.toLowerCase();
-  const known = new Set(list.map(key));
-  let added = 0, skipped = 0;
+  let added = 0, updated = 0, skipped = 0;
   for (const r of rows) {
     const entry = {};
     header.forEach((col, i) => {
@@ -1223,13 +1301,15 @@ function importCsvText(text) {
       entry[field] = v;
     });
     if (!entry.hotelName) continue;
-    if (known.has(key(entry))) { skipped++; continue; }
-    known.add(key(entry));
-    list.push(entry);
-    added++;
+    const idx = findSameHotelIndex(list, entry);
+    if (idx < 0) { list.push(entry); added++; continue; }
+    // Gleiches Hotel: die zuletzt geänderte Version gewinnt (z. B. neuer Preis vom Partner)
+    const mine = list[idx].updatedAt || '', theirs = entry.updatedAt || '';
+    if (theirs && theirs > mine) { list[idx] = { ...list[idx], ...entry }; updated++; }
+    else skipped++;
   }
   saveHotels(list);
-  return { added, skipped };
+  return { added, updated, skipped };
 }
 
 // Ergänzt Koordinaten und Umgebung für Hotels, die vor dieser Funktion gespeichert wurden.
@@ -1288,14 +1368,72 @@ importInput?.addEventListener('change', async () => {
   const file = importInput.files?.[0];
   if (!file) return;
   try {
-    const { added, skipped } = importCsvText(await file.text());
-    alert(`${added} Hotel(s) importiert${skipped ? `, ${skipped} bereits vorhanden` : ''}.`);
+    const { added, updated, skipped } = importCsvText(await file.text());
+    alert(`${added} neu, ${updated} aktualisiert${skipped ? `, ${skipped} unverändert (eigene Version ist aktueller oder gleich)` : ''}.`);
   } catch (err) {
     alert(`Import fehlgeschlagen: ${err.message}`);
   } finally {
     importInput.value = '';
   }
 });
+
+document.getElementById('sortBy')?.addEventListener('change', (e) => setView({ sortBy: e.target.value }));
+document.getElementById('periodFilter')?.addEventListener('change', (e) => setView({ period: e.target.value }));
+
+// Nachschlagen: wie die Punkte zustande kommen (aus denselben Konstanten wie die Rechnung)
+function renderScoringHelp() {
+  const el = document.getElementById('scoringHelpBody');
+  if (!el) return;
+  const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
+  const boards = Object.entries(BOARD_POINTS).map(([k, v]) => row(k, fmtPoints(v))).join('');
+  el.innerHTML = `
+    <p>Score = <b>Qualität</b> + <b>Preisanpassung</b>. Bei „Nur Qualität“ entfällt die Preisanpassung.</p>
+    <h4>Qualität</h4>
+    <table>
+      ${row('Portalnoten (Durchschnitt aller eingetragenen Portale)', 'bis 35')}
+      ${row('Eigene Bewertung (2,5–5 Sterne)', 'bis 20')}
+      ${row('Strand-Schatten: Überdachung / beides / Schirme', '+6 / +5 / +2')}
+      ${row('Strand-Art: Sand / Sand-Kies', '+5 / +2')}
+      ${row('Strandentfernung: bis 200 m / 400 m / 500 m / 600 m', '+4 / 0 / −3 / −6')}
+      ${row('… ab ca. 735 m', '−10')}
+      ${row('Kinderpool, Spielplatz: je Ja / Unbekannt / Nein', '+3 / 0 / −6')}
+      ${row(`Transfer: bis ${TRANSFER_FREE_MIN} Min. frei, dann je 10 Min.`, `−${TRANSFER_POINTS_PER_10MIN} (max. −${TRANSFER_MAX_MALUS})`)}
+      ${row('Einkauf bis 500 m / bis 1 km', '+2 / +1')}
+      ${row('Hauptstraße bis 100 / 200 / 300 m', '−3 / −2 / −1')}
+      ${row('Flughafen bis 4 / 8 km (Fluglärm)', '−3 / −1')}
+      ${row('Portal-Bonus für teure Hotels: je 10 % über mittlerem Preis', `+${String(PORTAL_BONUS_PER_10PCT).replace('.', ',')} (max. +${PORTAL_BONUS_MAX})`)}
+    </table>
+    <h4>Verpflegung</h4>
+    <table>${boards}</table>
+    <h4>Preis</h4>
+    <p>Verglichen mit dem mittleren Preis der angezeigten Hotels: je 10 % teurer ca. −2,5, je 10 % günstiger ca. +2,5 Punkte. Mit zweitem Veranstalterpreis zählt der Mittelwert beider Preise; liegt einer über 15 % darunter, erscheint „⚡ Schnäppchen“.</p>
+    <h4>Gleichauf</h4>
+    <p>Weniger als ${String(TIE_POINTS).replace('.', ',')} Punkte Abstand gelten als „praktisch gleichauf“.</p>`;
+}
+renderScoringHelp();
+
+// Geteiltes Hotel schon in der Liste? Dann Eintrag zum Aktualisieren öffnen.
+function hideDuplicateNotice() {
+  const n = document.getElementById('dupNotice');
+  if (n) n.hidden = true;
+}
+(function checkSharedDuplicate() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get('title') && !params.get('text') && !params.get('url')) return;
+  const shared = { hotelName: document.getElementById('hotelName')?.value.trim(), location: '', url: document.getElementById('url')?.value.trim() };
+  if (!shared.hotelName && !shared.url) return;
+  const list = getHotels();
+  const idx = findSameHotelIndex(list, shared);
+  if (idx < 0) return;
+  const old = list[idx];
+  editHotel(idx);
+  if (shared.url) document.getElementById('url').value = shared.url; // neuester Link
+  const n = document.getElementById('dupNotice');
+  if (n) {
+    n.hidden = false;
+    n.textContent = `🔁 „${old.hotelName}“ ist schon gespeichert${old.price ? ` (bisher ${old.price} €)` : ''}. Neuen Preis eintragen und speichern – der alte Preis wird mit angezeigt.`;
+  }
+})();
 
 if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', renderList); }
 else { renderList(); }
