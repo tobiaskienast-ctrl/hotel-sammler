@@ -1,5 +1,5 @@
-const CACHE_NAME = 'hotel-sammler-v34';
-const APP_SHELL = ['./', './index.html', './app.js?v=34', './manifest.json'];
+const CACHE_NAME = 'hotel-sammler-v35';
+const APP_SHELL = ['./', './index.html', './app.js?v=35', './manifest.json'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
