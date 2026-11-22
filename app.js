@@ -1406,8 +1406,7 @@ document.getElementById('envAllBtn')?.addEventListener('click', async (ev) => {
 const QUICK_SEARCHES = {
   kidsPool: { terms: 'Kinderbecken Kinderpool' },
   playground: { terms: 'Kinderspielplatz Spielplatz' },
-  beachSand: { terms: 'Sandstrand' },
-  beachKies: { terms: 'Kiesstrand Kies Strand' },
+  beachSurface: { terms: 'Strand Sand Kies' },
   beachPhotos: { terms: 'Strand', images: true }
 };
 function currentFormCoords() {
