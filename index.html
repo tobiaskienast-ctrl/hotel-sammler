@@ -29,6 +29,8 @@
     .dup-notice { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; margin-bottom: 10px; }
     .more-list { margin-top: 10px; }
     .more-list > summary { cursor: pointer; color: #38bdf8; font-weight: 600; font-size: 0.85rem; padding: 10px 0; border-top: 1px solid #334155; }
+    .mini-row { gap: 6px; }
+    .mini-row .btn-search { margin-top: 6px; }
     .list-controls { margin-top: 14px; padding-top: 10px; border-top: 1px solid #334155; }
     .help { margin-top: 10px; font-size: 0.82rem; color: var(--text); }
     .help summary { cursor: pointer; color: #38bdf8; font-weight: 600; }
@@ -162,6 +164,7 @@
           <option value="Steg/Plattform">Steg / Plattform</option>
           <option value="Unbekannt" selected>Unbekannt</option>
         </select>
+        <button type="button" class="btn-search" data-search="beachSurface">🔍 Sand oder Kies?</button>
       </div>
       <div>
         <label for="beachShade">Strand-Schatten</label>
@@ -171,6 +174,10 @@
           <option value="Schirme">Sonnenschirme</option>
           <option value="Keine/Unbekannt" selected>Keine / Unbekannt</option>
         </select>
+        <div class="row mini-row">
+          <button type="button" class="btn-search" data-search="beachPhotos">📷 Fotos</button>
+          <button type="button" class="btn-search" data-search="beachSatellite">🛰️ Satellit</button>
+        </div>
       </div>
     </div>
 
@@ -179,21 +186,24 @@
       <div>
         <label for="kidsPool">Kinderpool</label>
         <select id="kidsPool">
+          <option value="Überdacht">Ja, überdacht</option>
           <option value="Ja">Ja</option>
           <option value="Nein">Nein</option>
           <option value="Unbekannt" selected>Unbekannt</option>
         </select>
+        <button type="button" class="btn-search" data-search="kidsPool">🔍 Kinderpool suchen</button>
       </div>
       <div>
         <label for="playground">Spielplatz</label>
         <select id="playground">
+          <option value="Überdacht">Ja, überdacht</option>
           <option value="Ja">Ja</option>
           <option value="Nein">Nein</option>
           <option value="Unbekannt" selected>Unbekannt</option>
         </select>
+        <button type="button" class="btn-search" data-search="playground">🔍 Spielplatz suchen</button>
       </div>
     </div>
-    <button type="button" class="btn-search" id="kidsSearchBtn">🔍 Bei Google prüfen (Kinderpool &amp; Spielplatz)</button>
 
     <div class="section-title">Reise</div>
     <label for="airportChoice">Ankunftsflughafen</label>
@@ -337,6 +347,6 @@
       }
     });
   </script>
-  <script src="./app.js?v=34"></script>
+  <script src="./app.js?v=35"></script>
 </body>
 </html>

@@ -824,7 +824,7 @@ function boardPoints(board) {
 }
 
 // Kinderpool und Spielplatz: sehr wichtig für Familien mit kleinen Kindern.
-const KIDS_POINTS = { Ja: 3, Unbekannt: 0, Nein: -6 };
+const KIDS_POINTS = { 'Überdacht': 5, Ja: 3, Unbekannt: 0, Nein: -6 }; // Schatten über Kinderpool/Spielplatz: +2 extra
 function kidsPoints(h) {
   return (KIDS_POINTS[h.kidsPool] ?? 0) + (KIDS_POINTS[h.playground] ?? 0);
 }
@@ -1015,7 +1015,7 @@ function renderList() {
     const h = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, typeof v === 'string' ? escapeHtml(v) : v]));
     const isWinner = rankIdx === 0;
     const envParts = [];
-    const kidsMark = (v) => (v === 'Ja' ? '✓' : v === 'Nein' ? '✗' : '?');
+    const kidsMark = (v) => (v === 'Überdacht' ? '✓ ☂️' : v === 'Ja' ? '✓' : v === 'Nein' ? '✗' : '?');
     envParts.push(`👶 Kinderpool ${kidsMark(h.kidsPool)} · Spielplatz ${kidsMark(h.playground)}${h.kidsPoints ? `: ${fmtPoints(h.kidsPoints)}` : ''}`);
     if (h.boardPoints !== 0) envParts.push(`🍽️ ${h.board}: ${fmtPoints(h.boardPoints)}`);
     if (h.beachDistPoints < 0) envParts.push(`🏖️ Strand ${h.beachMeters} m entfernt: ${fmtPoints(h.beachDistPoints)}`);
@@ -1402,14 +1402,40 @@ document.getElementById('envAllBtn')?.addEventListener('click', async (ev) => {
   say(`✅ ${done} Hotel(s) ergänzt${failed ? `, ${failed} übersprungen (abgebrochen oder Server nicht erreichbar – später erneut versuchen)` : ''}.`);
 });
 
-// Google-Suche nach Kinderpool und Spielplatz für das Hotel im Formular
-document.getElementById('kidsSearchBtn')?.addEventListener('click', () => {
+// Schnellsuchen für Kinder- und Strandfelder (Knöpfe mit data-search)
+const QUICK_SEARCHES = {
+  kidsPool: { terms: 'Kinderbecken Kinderpool' },
+  playground: { terms: 'Kinderspielplatz Spielplatz' },
+  beachSurface: { terms: 'Strand Sand Kies' },
+  beachPhotos: { terms: 'Strand', images: true }
+};
+function currentFormCoords() {
+  const list = getHotels();
+  const editIdx = Number(document.getElementById('editIndex')?.value ?? -1);
+  const form = { hotelName: document.getElementById('hotelName')?.value.trim(), location: document.getElementById('location')?.value.trim(), url: document.getElementById('url')?.value.trim() };
+  const h = editIdx >= 0 ? list[editIdx] : list[findSameHotelIndex(list, form)];
+  return h && h.lat !== '' && h.lat != null && h.lon !== '' && h.lon != null ? { lat: h.lat, lon: h.lon } : null;
+}
+document.querySelectorAll('[data-search]').forEach((btn) => btn.addEventListener('click', () => {
   const name = document.getElementById('hotelName')?.value.trim();
-  const loc = document.getElementById('location')?.value.trim();
+  const loc = document.getElementById('location')?.value.trim() || '';
   if (!name) { alert('Bitte zuerst den Hotelnamen eintragen.'); return; }
-  const q = `"${name}" ${loc || ''} Kinderbecken Kinderpool Spielplatz`.replace(/\s+/g, ' ').trim();
-  window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, '_blank');
-});
+  const kind = btn.dataset.search;
+  if (kind === 'beachSatellite') {
+    // Satellitenbild am gespeicherten Standort: Schirme und Überdachungen sind dort gut zu erkennen
+    const c = currentFormCoords();
+    const url = c
+      ? `https://www.google.com/maps/@?api=1&map_action=map&center=${c.lat},${c.lon}&zoom=18&basemap=satellite`
+      : googleMapsSearchUrl(name, loc);
+    if (!c) alert('Standort noch nicht gespeichert – Google Maps sucht nach dem Namen. Dort auf Satellit umschalten.');
+    window.open(url, '_blank');
+    return;
+  }
+  const cfg = QUICK_SEARCHES[kind];
+  if (!cfg) return;
+  const q = `"${name}" ${loc} ${cfg.terms}`.replace(/\s+/g, ' ').trim();
+  window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}${cfg.images ? '&udm=2' : ''}`, '_blank');
+}));
 
 const importInput = document.getElementById('importFile');
 document.getElementById('importBtn')?.addEventListener('click', () => importInput?.click());
@@ -1445,7 +1471,7 @@ function renderScoringHelp() {
       ${row('Strand-Art: Sand / Sand-Kies', '+5 / +2')}
       ${row('Strandentfernung: bis 200 m / 400 m / 500 m / 600 m', '+4 / 0 / −3 / −6')}
       ${row('… ab ca. 735 m', '−10')}
-      ${row('Kinderpool, Spielplatz: je Ja / Unbekannt / Nein', '+3 / 0 / −6')}
+      ${row('Kinderpool, Spielplatz: je überdacht / Ja / Unbekannt / Nein', '+5 / +3 / 0 / −6')}
       ${row(`Transfer: bis ${TRANSFER_FREE_MIN} Min. frei, dann je 10 Min.`, `−${TRANSFER_POINTS_PER_10MIN} (max. −${TRANSFER_MAX_MALUS})`)}
       ${row('Einkauf bis 500 m / bis 1 km', '+2 / +1')}
       ${row('Hauptstraße bis 100 / 200 / 300 m', '−3 / −2 / −1')}
